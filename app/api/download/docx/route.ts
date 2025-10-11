@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
   const blob = await Packer.toBlob(doc)
   const arrayBuffer = await blob.arrayBuffer()
-  return new Response(Buffer.from(arrayBuffer), {
+  return new Response(arrayBuffer, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "Content-Disposition": 'attachment; filename="product-spec.docx"',
