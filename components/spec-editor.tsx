@@ -4,6 +4,7 @@ import { useId } from "react"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
+import { Plus, Trash } from "lucide-react"
 
 export type SpecData = {
   productOverview: string
@@ -73,43 +74,46 @@ function EditableList({
       <Label htmlFor={id}>{label}</Label>
       <div className="space-y-2">
         {list.map((item, idx) => (
-          <div key={`${id}-${idx}`} className="flex items-start gap-2">
-            <Textarea
-              id={idx === 0 ? id : undefined}
-              value={item}
-              placeholder={placeholder}
-              onChange={(e) => {
-                const next = [...list]
-                next[idx] = e.target.value
-                onChange(next.filter((s) => s !== "" || idx === list.length - 1))
-              }}
-              className="min-h-[56px] flex-1"
-            />
-            <div className="flex flex-col gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
+          <div key={`${id}-${idx}`} className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Textarea
+                id={idx === 0 ? id : undefined}
+                value={item}
+                placeholder={placeholder}
+                onChange={(e) => {
                   const next = [...list]
-                  next.splice(idx, 1)
-                  onChange(next)
+                  next[idx] = e.target.value
+                  onChange(next.filter((s) => s !== "" || idx === list.length - 1))
                 }}
-                disabled={list.length <= 1 && !list[0]}
-                aria-label={`Remove ${label} item ${idx + 1}`}
-              >
-                Remove
-              </Button>
-              {idx === list.length - 1 && (
+                className="min-h-[56px] flex-1"
+              />
+              <div className="flex flex-col gap-2">
                 <Button
-                  variant="secondary"
+                  variant="destructive"
+                  className="bg-background text-destructive hover:text-destructive-foreground"
                   size="sm"
-                  onClick={() => onChange([...list, ""])}
-                  aria-label={`Add ${label} item`}
+                  onClick={() => {
+                    const next = [...list]
+                    next.splice(idx, 1)
+                    onChange(next)
+                  }}
+                  disabled={list.length <= 1 && !list[0]}
+                  aria-label={`Remove ${label} item ${idx + 1}`}
                 >
-                  Add
+                  <Trash />
                 </Button>
-              )}
+              </div>
             </div>
+            {idx === list.length - 1 && (
+              <Button
+                variant="default"
+                className="w-[calc(100%-42px)] mx-auto bg-background text-primary hover:text-primary-foreground border border-primary"
+                onClick={() => onChange([...list, ""])}
+                aria-label={`Add ${label} item`}
+              >
+                <Plus />
+              </Button>
+            )}
           </div>
         ))}
       </div>

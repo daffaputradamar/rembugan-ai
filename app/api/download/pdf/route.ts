@@ -1,5 +1,7 @@
 import type { NextRequest } from "next/server"
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
+import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib"
+
+import { parseMarkdownToBlocks, stripInlineMarkdown, type MarkdownBlock } from "@/lib/markdown"
 
 type SpecData = {
   productOverview: string
@@ -14,67 +16,102 @@ type SpecData = {
 }
 
 export async function POST(req: NextRequest) {
-  const { spec, summary } = await req.json()
+  const { spec, summary } = (await req.json()) as { spec: SpecData; summary?: string }
   if (!spec) return new Response("Missing spec", { status: 400 })
 
   const pdfDoc = await PDFDocument.create()
-  const page = pdfDoc.addPage([612, 792]) // Letter
+  const pageSize: [number, number] = [612, 792]
+  let page = pdfDoc.addPage(pageSize)
   const margin = 48
-  let y = 792 - margin
+  let y = pageSize[1] - margin
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
   const fontSize = 11
 
   function writeTitle(text: string) {
-    y -= 20
+    ensureLine(20)
     page.drawText(text, { x: margin, y, size: 16, font: bold, color: rgb(0.1, 0.1, 0.1) })
     y -= 8
   }
 
   function writeHeading(text: string) {
-    y -= 18
+    ensureLine(18)
     page.drawText(text, { x: margin, y, size: 13, font: bold })
     y -= 6
   }
 
   function writeText(text: string) {
-    const lines = wrapText(text, 612 - margin * 2, font, fontSize)
+    const sanitized = stripInlineMarkdown(text)
+    if (!sanitized) return
+    const lines = wrapText(sanitized, pageSize[0] - margin * 2, font, fontSize)
     lines.forEach((line) => {
-      y -= 14
-      if (y < margin) newPage()
+      ensureLine(14)
       page.drawText(line, { x: margin, y, size: fontSize, font })
     })
     y -= 6
   }
 
   function writeList(items: string[]) {
-    items.forEach((item) => {
-      const lines = wrapText(item, 612 - margin * 2 - 14, font, fontSize)
-      lines.forEach((line, idx) => {
-        y -= 14
-        if (y < margin) newPage()
-        page.drawText((idx === 0 ? "• " : "  ") + line, {
-          x: margin,
-          y,
-          size: fontSize,
-          font,
+    items
+      .map((item) => stripInlineMarkdown(item))
+      .filter((item) => item.length > 0)
+      .forEach((item) => {
+        const lines = wrapText(item, pageSize[0] - margin * 2 - 14, font, fontSize)
+        lines.forEach((line, idx) => {
+          ensureLine(14)
+          page.drawText((idx === 0 ? "• " : "  ") + line, {
+            x: margin,
+            y,
+            size: fontSize,
+            font,
+          })
         })
       })
-    })
     y -= 4
   }
 
   function newPage() {
-    const p = pdfDoc.addPage([612, 792])
-    page.setSize(612, 792) // keep current ref but adjust
-    // Re-assign not necessary if we always use 'page' from outer scope,
-    // but pdf-lib doesn't allow editing old page after new; keep simple.
-    // In real-world, track current page variable; simplified here.
+    page = pdfDoc.addPage(pageSize)
+    y = pageSize[1] - margin
   }
 
-  if (summary) {
+  function ensureLine(lineHeight: number) {
+    if (y - lineHeight < margin) {
+      newPage()
+    }
+    y -= lineHeight
+  }
+
+  function writeMarkdownBlocks(blocks: MarkdownBlock[]) {
+    blocks.forEach((block) => {
+      switch (block.type) {
+        case "heading": {
+          const size = block.level <= 1 ? 13 : block.level === 2 ? 12 : 11
+          ensureLine(18)
+          page.drawText(block.text, { x: margin, y, size, font: bold })
+          y -= 4
+          break
+        }
+        case "list":
+          writeList(block.items)
+          break
+        case "paragraph":
+        default:
+          writeText(block.text)
+          break
+      }
+    })
+  }
+
+  const summaryText = summary ?? ""
+  const summaryBlocks = parseMarkdownToBlocks(summaryText)
+  if (summaryText) {
     writeTitle("Summary")
-    writeText(summary)
+    if (summaryBlocks.length) {
+      writeMarkdownBlocks(summaryBlocks)
+    } else {
+      writeText(summaryText)
+    }
   }
 
   writeTitle("Product Specification")
@@ -100,7 +137,8 @@ export async function POST(req: NextRequest) {
   }
 
   const bytes = await pdfDoc.save()
-  return new Response(Buffer.from(bytes), {
+  const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+  return new Response(arrayBuffer, {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": 'attachment; filename="product-spec.pdf"',
@@ -109,7 +147,7 @@ export async function POST(req: NextRequest) {
 }
 
 // Basic text wrapper for pdf-lib
-function wrapText(text: string, maxWidth: number, font: any, size: number) {
+function wrapText(text: string, maxWidth: number, font: PDFFont, size: number) {
   const words = (text || "").split(/\s+/)
   const lines: string[] = []
   let line = ""

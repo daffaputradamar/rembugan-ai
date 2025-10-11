@@ -1,87 +1,56 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import Image from "next/image"
+import { useEffect, useRef, useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
+import { Stepper, type StepStatus } from "@/components/ui/stepper"
 import { toast } from "@/components/ui/use-toast"
 import SpecEditor, { type SpecData, emptySpec, specToMarkdown } from "@/components/spec-editor"
+import { ArrowLeft, ArrowRight, Copy, Eye, FileCode2, LoaderCircle, Sparkles } from "lucide-react"
 
 type AiMode = "summarize" | "spec"
+type Step = "input" | "summary" | "spec"
+const STORAGE_KEY = "rembuganai-session"
 
 export default function HomePage() {
   const [transcript, setTranscript] = useState("")
   const [summary, setSummary] = useState("")
   const [spec, setSpec] = useState<SpecData>(emptySpec)
   const [loading, setLoading] = useState<AiMode | null>(null)
-  const [highlight, setHighlight] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [downloading, setDownloading] = useState<"docx" | "pdf" | null>(null)
+  const [step, setStep] = useState<Step>("input")
+  const [summaryView, setSummaryView] = useState<"preview" | "markdown">("preview")
 
   // Persist session locally (optional bonus)
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("meeting-spec-session")
+      const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) {
         const parsed = JSON.parse(saved)
         setTranscript(parsed.transcript || "")
         setSummary(parsed.summary || "")
         setSpec(parsed.spec || emptySpec)
       }
-    } catch {}
+    } catch { }
   }, [])
 
   useEffect(() => {
     try {
-      localStorage.setItem("meeting-spec-session", JSON.stringify({ transcript, summary, spec }))
-    } catch {}
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ transcript, summary, spec }))
+    } catch { }
   }, [transcript, summary, spec])
 
-  const keywords = useMemo(() => {
-    // Derive simple keywords from features/objectives for optional highlighting
-    const base = [
-      ...spec.keyFeatures,
-      ...spec.objectives,
-      ...spec.functionalRequirements,
-      ...spec.nonFunctionalRequirements,
-    ]
-    return Array.from(
-      new Set(base.map((s) => s.toLowerCase()).flatMap((s) => s.split(/[^a-z0-9]+/i).filter(Boolean))),
-    ).filter((w) => w.length > 4)
-  }, [spec])
-
-  const highlightedTranscript = useMemo(() => {
-    if (!highlight || keywords.length === 0) return transcript
-    // Escape regex special chars
-    const escaped = keywords.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    const re = new RegExp(`\\b(${escaped.join("|")})\\b`, "gi")
-    return transcript.replace(re, (m) => `[[[H:${m}]]]`)
-  }, [transcript, keywords, highlight])
-
-  const transcriptWithMarks = useMemo(() => {
-    if (!highlight) return transcript
-    // Render marked tokens with a subtle highlight
-    const parts = highlightedTranscript.split("[[[")
-    return parts.map((chunk, i) => {
-      if (!chunk.includes("]]]")) return <span key={i}>{chunk}</span>
-      const [tag, rest] = chunk.split("]]]")
-      if (tag.startsWith("H:")) {
-        const word = tag.slice(2)
-        return (
-          <span key={i}>
-            <mark className="rounded-sm bg-accent/60 px-0.5 py-0.5 text-foreground">{word}</mark>
-            {rest}
-          </span>
-        )
-      }
-      return <span key={i}>{chunk}</span>
-    })
-  }, [highlightedTranscript, highlight])
-
-  async function callAI(mode: AiMode) {
+  async function callAI(mode: AiMode, nextStep?: Step) {
     if (!transcript.trim()) {
-      toast({ title: "No transcript provided", description: "Paste text or upload a file first." })
+      toast({ title: "Transkrip belum diisi", description: "Unggah atau tempelkan teks rapat terlebih dahulu." })
       return
     }
     setLoading(mode)
@@ -95,12 +64,16 @@ export default function HomePage() {
       const data = await res.json()
       if (mode === "summarize") {
         setSummary(data.summary || "")
+        if (nextStep === "summary") setSummaryView("preview")
+        if (nextStep) setStep(nextStep)
       } else {
         setSpec(data.spec || emptySpec)
         if (!summary && data.summary) setSummary(data.summary)
+        if (nextStep) setStep(nextStep)
       }
-    } catch (err: any) {
-      toast({ title: "Something went wrong", description: err?.message || "Please try again." })
+    } catch (error: unknown) {
+      const description = error instanceof Error ? error.message : "Please try again."
+      toast({ title: "Something went wrong", description })
     } finally {
       setLoading(null)
     }
@@ -116,181 +89,395 @@ export default function HomePage() {
       const data = await res.json()
       setTranscript((prev) => (prev ? prev + "\n\n" + data.text : data.text))
       toast({ title: "File loaded", description: `Extracted text from ${file.name}` })
-    } catch (err: any) {
+    } catch (error: unknown) {
+      const description = error instanceof Error ? error.message : "Only .txt and .docx are supported."
       toast({
         title: "Could not read file",
-        description: err?.message || "Only .txt and .docx are supported.",
+        description,
       })
     }
   }
 
   async function download(type: "docx" | "pdf") {
-    const res = await fetch(`/api/download/${type}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spec, summary }),
-    })
-    if (!res.ok) {
-      toast({ title: "Download failed", description: `Could not generate ${type.toUpperCase()}.` })
-      return
+    if (downloading) return
+    setDownloading(type)
+    try {
+      const res = await fetch(`/api/download/${type}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spec, summary }),
+      })
+      if (!res.ok) {
+        toast({ title: "Download failed", description: `Could not generate ${type.toUpperCase()}.` })
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `rembuganai-spec.${type}`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (error: unknown) {
+      const description = error instanceof Error ? error.message : "Please try again."
+      toast({ title: "Download failed", description })
+    } finally {
+      setDownloading(null)
     }
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `product-spec.${type}`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
   }
 
-  const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const hasValues = (arr: string[]) => arr.some((item) => item.trim().length > 0)
+  const stepItems: { key: Step; title: string; description: string }[] = [
+    {
+      key: "input",
+      title: "Input Rapat",
+      description: "Unggah catatan rapat atau tempel transkrip mentah.",
+    },
+    {
+      key: "summary",
+      title: "Ringkasan AI",
+      description: "Kurasi highlight keputusan dan selaraskan narasi.",
+    },
+    {
+      key: "spec",
+      title: "Draft Spesifikasi",
+      description: "Konversi ringkasan menjadi requirement siap bagikan.",
+    },
+  ]
+  const currentStepIndex = stepItems.findIndex((s) => s.key === step)
+  const summaryHasContent = summary.trim().length > 0
+  const specHasContent =
+    spec.productOverview.trim().length > 0 ||
+    hasValues(spec.objectives) ||
+    hasValues(spec.keyFeatures) ||
+    hasValues(spec.functionalRequirements) ||
+    hasValues(spec.nonFunctionalRequirements) ||
+    hasValues(spec.userStories) ||
+    hasValues(spec.constraintsRisks) ||
+    hasValues(spec.openQuestions) ||
+    hasValues(spec.uiUxRequirements)
+  const stepperSteps = stepItems.map((item, idx) => {
+    const status: StepStatus = idx < currentStepIndex ? "complete" : idx === currentStepIndex ? "current" : "upcoming"
+    let onSelect: (() => void) | undefined
+    if (idx <= currentStepIndex) {
+      onSelect = () => setStep(item.key)
+    } else if (item.key === "summary" && summaryHasContent) {
+      onSelect = () => setStep("summary")
+    } else if (item.key === "spec" && specHasContent) {
+      onSelect = () => setStep("spec")
+    }
+    return {
+      ...item,
+      status,
+      onSelect,
+    }
+  })
 
   return (
-    <main className="mx-auto max-w-7xl p-4 md:p-8">
-      <header className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-balance text-2xl font-semibold tracking-tight md:text-3xl">
-            Meeting Transcript → Product Specification
+    <main className="relative mx-auto max-w-6xl p-4 sm:p-6 md:p-10">
+      {(loading !== null || uploading || downloading !== null) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-primary/20 bg-card px-6 py-5 text-center shadow-lg shadow-primary/10">
+            <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">
+                {uploading
+                  ? "Memuat transkrip…"
+                  : downloading === "docx"
+                    ? "Menyiapkan dokumen DOCX"
+                    : downloading === "pdf"
+                      ? "Menyiapkan dokumen PDF"
+                      : loading === "summarize"
+                        ? "AI sedang merangkum"
+                        : "AI sedang menyusun spesifikasi"}
+              </p>
+              <p className="text-xs text-muted-foreground">Mohon tunggu, RembuganAI sedang bekerja.</p>
+            </div>
+          </div>
+        </div>
+      )}
+      <header className="mb-12 grid gap-6 lg:grid-cols-[auto,1fr] lg:items-center">
+        <div className="flex justify-center lg:justify-start">
+          <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-primary/40 bg-primary/5 shadow-lg shadow-primary/10">
+            <Image
+              src="/rembuganai-logo.svg"
+              alt="RembuganAI logo"
+              width={56}
+              height={56}
+              priority
+            />
+          </div>
+        </div>
+        <div className="space-y-4 text-center lg:text-left">
+          <div className="inline-flex items-center justify-center gap-2 rounded-full bg-primary/5 px-4 py-1 text-xs font-semibold uppercase tracking-[0.4em] text-primary lg:justify-start">
+            RembuganAI
+          </div>
+          <h1 className="text-balance text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+            Saka obrolan dadi tindakan.
           </h1>
           <p className="text-muted-foreground">
-            Paste a transcript or upload a file, then summarize and generate a structured spec.
+            Ringkas rapat produk, tangkap keputusan penting, dan dapatkan draft spesifikasi siap kirim dalam hitungan menit.
           </p>
         </div>
-        <Button variant="secondary" onClick={() => setHighlight((h) => !h)}>
-          {highlight ? "Disable" : "Enable"} Highlights
-        </Button>
       </header>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Left: Input */}
-        <Card className="overflow-hidden">
-          <CardHeader className="space-y-2">
-            <CardTitle>Input</CardTitle>
-            <div className="flex items-center gap-2">
-              <Label htmlFor="file">Upload (.txt or .docx)</Label>
-              <Input
-                id="file"
-                ref={fileInputRef}
-                type="file"
-                accept=".txt,.docx"
-                disabled={uploading}
-                onChange={async (e) => {
-                  const file = e.target.files?.[0]
-                  if (!file) return
-                  setUploading(true)
-                  await onUploadFile(file)
-                  setUploading(false)
-                  if (fileInputRef.current) fileInputRef.current.value = ""
-                }}
-              />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Label htmlFor="transcript">Meeting Transcript</Label>
-            <Textarea
-              id="transcript"
-              placeholder="Paste your meeting transcript here..."
-              value={transcript}
-              onChange={(e) => setTranscript(e.target.value)}
-              className="min-h-[260px] font-mono"
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={() => callAI("summarize")} disabled={loading !== null}>
-                {loading === "summarize" ? "Summarizing…" : "Summarize"}
-              </Button>
-              <Button onClick={() => callAI("spec")} disabled={loading !== null} variant="default">
-                {loading === "spec" ? "Generating…" : "Generate Specification"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  navigator.clipboard.writeText(transcript)
-                  toast({ title: "Copied transcript" })
-                }}
-              >
-                Copy Transcript
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setTranscript("")
-                  setSummary("")
-                  setSpec(emptySpec)
-                }}
-              >
-                Reset
-              </Button>
-            </div>
-            {highlight && (
-              <>
-                <Separator />
-                <div className="rounded-md border p-3">
-                  <div className="mb-2 text-sm font-medium">Preview with Highlights</div>
-                  <div className="prose max-w-none whitespace-pre-wrap text-sm leading-relaxed">
-                    {transcriptWithMarks}
-                  </div>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+      <Stepper steps={stepperSteps} className="mb-12" />
 
-        {/* Right: Output */}
-        <div className="flex flex-col gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Summary</CardTitle>
+      {step === "input" && (
+        <section className="mx-auto flex max-w-5xl flex-col gap-6">
+          <div className="flex items-center justify-end">
+            <Button
+              className="gap-2"
+              variant="ghost"
+              onClick={() => {
+                setSummaryView("preview")
+                setStep("summary")
+              }}
+              disabled={!summaryHasContent}
+            >
+              <ArrowRight className="h-4 w-4" />
+              Lihat Ringkasan
+            </Button>
+          </div>
+          <Card className="overflow-hidden">
+            <CardHeader className="space-y-2">
+              <CardTitle>Input Rembugan</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Unggah atau tempelkan transkrip rapat, lalu biarkan RembuganAI mengolahnya menjadi ringkasan bernas.
+              </p>
             </CardHeader>
-            <CardContent className="space-y-2">
-              <Textarea
-                value={summary}
-                onChange={(e) => setSummary(e.target.value)}
-                placeholder="Summary will appear here..."
-                className="min-h-[120px]"
-              />
-              <div className="flex gap-2">
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor="file">Upload (.txt atau .docx)</Label>
+                <Input
+                  id="file"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".txt,.docx"
+                  disabled={uploading}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    setUploading(true)
+                    await onUploadFile(file)
+                    setUploading(false)
+                    if (fileInputRef.current) fileInputRef.current.value = ""
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="transcript">Meeting Transcript</Label>
+                <Textarea
+                  id="transcript"
+                  placeholder="Tempelkan transkrip rapat Anda di sini..."
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  className="min-h-[260px] max-h-[500px] overflow-y-auto font-mono"
+                />
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
                 <Button
-                  variant="outline"
+                  className="gap-2"
+                  onClick={() => callAI("summarize", "summary")}
+                  disabled={loading !== null}
+                >
+                  {loading === "summarize" ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  {loading === "summarize" ? "Merangkum…" : "Ringkas Otomatis"}
+                </Button>
+                <Button
+                  variant="ghost"
                   onClick={() => {
-                    navigator.clipboard.writeText(summary || "")
-                    toast({ title: "Copied summary" })
+                    setTranscript("")
+                    setSummary("")
+                    setSpec(emptySpec)
+                    setSummaryView("preview")
+                    setStep("input")
                   }}
                 >
-                  Copy
+                  Reset
                 </Button>
               </div>
             </CardContent>
           </Card>
+        </section>
+      )}
 
-          <Card className="overflow-hidden">
-            <CardHeader>
-              <CardTitle>Product Specification</CardTitle>
+      {step === "summary" && (
+        <section className="mx-auto max-w-5xl space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Button className="gap-2" variant="ghost" onClick={() => setStep("input")}>
+              <ArrowLeft className="h-4 w-4" />
+              Kembali ke Input
+            </Button>
+            <Button variant="ghost" onClick={() => setStep("spec")} disabled={!specHasContent}>
+              <ArrowRight /> Lihat Spesifikasi
+            </Button>
+          </div>
+
+          <Card>
+            <CardHeader className="space-y-2">
+              <CardTitle>Ringkasan Rembugan</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Tinjau versi Markdown yang dirender atau sunting langsung struktur Markdown yang akan diteruskan ke tim.
+              </p>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="inline-flex items-center gap-1 rounded-xl border border-border bg-card/60 p-1 shadow-sm">
+                  <Button
+                    variant={summaryView === "preview" ? "default" : "ghost"}
+                    size="sm"
+                    className="gap-2 rounded-lg"
+                    onClick={() => setSummaryView("preview")}
+                  >
+                    <Eye className="h-4 w-4" />
+                    Preview
+                  </Button>
+                  <Button
+                    variant={summaryView === "markdown" ? "default" : "ghost"}
+                    size="sm"
+                    className="gap-2 rounded-lg"
+                    onClick={() => setSummaryView("markdown")}
+                  >
+                    <FileCode2 className="h-4 w-4" />
+                    Markdown
+                  </Button>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => {
+                    navigator.clipboard.writeText(summary || "")
+                    toast({ title: "Ringkasan disalin" })
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                  Salin
+                </Button>
+              </div>
+              {summaryView === "markdown" ? (
+                <Textarea
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  placeholder="Ringkasan akan muncul di sini..."
+                  className="min-h-[160px] font-mono"
+                />
+              ) : (
+                <div className="rounded-md border bg-muted/40 p-4">
+                  {summary ? (
+                    <div className="prose max-w-none text-sm leading-relaxed">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Ringkasan akan ditampilkan di sini setelah Anda menjalankan proses AI atau menulis secara manual.
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button onClick={() => callAI("spec", "spec")} disabled={loading !== null || !summaryHasContent}>
+                  {loading === "spec" ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  {loading === "spec" ? "Menyusun…" : "Generate Spesifikasi"}
+                </Button>
+                <Button variant="ghost" onClick={() => callAI("summarize")} disabled={loading !== null}>
+                  {loading === "summarize" ? "Merangkum…" : "Perbarui Ringkasan"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
+      {step === "spec" && (
+        <section className="mx-auto max-w-6xl space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Button className="gap-2" variant="ghost" onClick={() => setStep("summary")}>
+              <ArrowLeft className="h-4 w-4" />
+              Kembali ke Ringkasan
+            </Button>
+              <Button variant="outline" onClick={() => callAI("summarize", "summary")} disabled={loading !== null}>
+                {loading === "summarize" ? "Merangkum…" : "Ringkas Ulang"}
+              </Button>
+          </div>
+
+          <Card className="border-primary/40 shadow-xl shadow-primary/10">
+            <CardHeader className="space-y-2">
+              <CardTitle className="text-2xl">Draft Spesifikasi Produk</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Lengkapi detail spesifikasi dengan cepat dari ringkasan rapat dan highlight keputusan penting.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 rounded-md border bg-muted/40 p-4 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    1
+                  </span>
+                  <div>
+                    <div className="font-medium text-foreground">Tinjau ringkasan</div>
+                    <div>Pastikan ringkasan memuat konteks, keputusan, dan next step yang disepakati.</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    2
+                  </span>
+                  <div>
+                    <div className="font-medium text-foreground">Lengkapi spesifikasi</div>
+                    <div>Isi detail requirement, scope, dan risiko agar dokumen siap dikirim.</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    3
+                  </span>
+                  <div>
+                    <div className="font-medium text-foreground">Bagikan deliverable</div>
+                    <div>Ekspor ke DOCX, PDF, atau kirim Markdown langsung ke workspace tim.</div>
+                  </div>
+                </div>
+              </div>
               <SpecEditor value={spec} onChange={setSpec} />
               <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => callAI("spec")} disabled={loading !== null}>
+                  {loading === "spec" ? "Memperbarui…" : "Generate Ulang"}
+                </Button>
                 <Button
                   variant="outline"
                   onClick={() => {
                     const md = specToMarkdown(spec, summary)
                     navigator.clipboard.writeText(md)
-                    toast({ title: "Copied as Markdown" })
+                    toast({ title: "Disalin dalam format Markdown" })
                   }}
                 >
-                  Copy (Markdown)
+                  Salin (Markdown)
                 </Button>
-                <Button onClick={() => download("docx")}>Download .docx</Button>
-                <Button variant="secondary" onClick={() => download("pdf")}>
-                  Download .pdf
+                <Button onClick={() => download("docx")} disabled={!!downloading} className="gap-2">
+                  {downloading === "docx" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                  Unduh .docx
+                </Button>
+                <Button variant="secondary" onClick={() => download("pdf")} disabled={!!downloading} className="gap-2">
+                  {downloading === "pdf" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                  Unduh .pdf
                 </Button>
               </div>
             </CardContent>
           </Card>
-        </div>
-      </div>
+        </section>
+      )}
     </main>
   )
 }

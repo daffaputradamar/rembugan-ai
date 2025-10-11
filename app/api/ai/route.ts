@@ -1,20 +1,23 @@
 import type { NextRequest } from "next/server"
 import { generateText } from "ai"
+import { google } from '@ai-sdk/google';
+
 
 // Note: Next.js handles provider configuration via the AI Gateway. You only pass a model string.
-const MODEL = "openai/gpt-5-mini"
+const MODEL =  google('gemini-2.5-flash');
 
 const systemPreamble = `
-You are an expert product manager and technical writer. 
+You are an expert product manager and technical writer.
 Return concise, clear results grounded in the provided transcript.
+Respond exclusively in Bahasa Indonesia.
 `
 
 const summarizePrompt = (text: string) => `
 ${systemPreamble}
 
-Task: Summarize the following meeting transcript into a concise, human-readable summary.
-- Capture key ideas, decisions, stakeholders, and pain points.
-- Keep it under 200 words unless necessary.
+Task: Summarize the following meeting transcript into a concise, human-readable summary in Bahasa Indonesia.
+- Tangkap ide utama, keputusan, pemangku kepentingan, dan tantangan.
+- Usahakan tetap di bawah 200 kata jika memungkinkan.
 
 Transcript:
 """
@@ -26,7 +29,7 @@ const specPrompt = (text: string) => `
 ${systemPreamble}
 
 Task: From the following meeting transcript, produce:
-1) A short summary (<= 150 words)
+1) A short summary (<= 150 words) written in Bahasa Indonesia
 2) A structured Product Specification in strict JSON with these keys:
 {
   "productOverview": string,
@@ -44,6 +47,7 @@ Rules:
 - Return ONLY valid JSON in a top-level object with keys "summary" and "spec".
 - "spec" must match the schema above.
 - No markdown, no comments.
+- Semua nilai string dan elemen array harus menggunakan Bahasa Indonesia yang alami.
 
 Transcript:
 """

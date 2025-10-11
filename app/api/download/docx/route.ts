@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server"
 import { Document, Packer, Paragraph, HeadingLevel, TextRun } from "docx"
 
+import { parseMarkdownToBlocks, stripInlineMarkdown, type MarkdownBlock } from "@/lib/markdown"
+
 type SpecData = {
   productOverview: string
   objectives: string[]
@@ -14,19 +16,17 @@ type SpecData = {
 }
 
 export async function POST(req: NextRequest) {
-  const { spec, summary } = await req.json()
+  const { spec, summary } = (await req.json()) as { spec: SpecData; summary?: string }
   if (!spec) return new Response("Missing spec", { status: 400 })
+
+  const summaryText = summary ?? ""
+  const summaryBlocks = parseMarkdownToBlocks(summaryText)
 
   const doc = new Document({
     sections: [
       {
         children: [
-          ...(summary
-            ? [
-                new Paragraph({ text: "Summary", heading: HeadingLevel.HEADING_1 }),
-                ...summary.split("\n").map((line) => new Paragraph({ children: [new TextRun(line)] })),
-              ]
-            : []),
+          ...renderSummary(summaryBlocks, summaryText),
           new Paragraph({ text: "Product Specification", heading: HeadingLevel.HEADING_1 }),
           ...(spec.productOverview
             ? [
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
                   text: "Product Overview",
                   heading: HeadingLevel.HEADING_2,
                 }),
-                ...splitLines(spec.productOverview),
+                ...splitLines(stripInlineMarkdown(spec.productOverview)),
               ]
             : []),
           ...listSection("Objectives", spec.objectives),
@@ -61,7 +61,10 @@ export async function POST(req: NextRequest) {
 }
 
 function splitLines(text: string) {
-  return (text || "").split("\n").map((line) => new Paragraph({ children: [new TextRun(line)] }))
+  return (text || "")
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0)
+    .map((line) => new Paragraph({ children: [new TextRun(stripInlineMarkdown(line))] }))
 }
 
 function listSection(title: string, items: string[]) {
@@ -71,10 +74,51 @@ function listSection(title: string, items: string[]) {
     ...items.map(
       (i) =>
         new Paragraph({
-          text: i,
+          text: stripInlineMarkdown(i),
           bullet: { level: 0 },
         }),
     ),
   ]
   return children
+}
+
+function renderSummary(blocks: MarkdownBlock[], fallback: string) {
+  const sanitizedFallback = stripInlineMarkdown(fallback)
+  if (blocks.length === 0 && !sanitizedFallback) return []
+  const children: Paragraph[] = [new Paragraph({ text: "Summary", heading: HeadingLevel.HEADING_1 })]
+  const source: MarkdownBlock[] = blocks.length > 0 ? blocks : [{ type: "paragraph", text: sanitizedFallback }]
+  source.forEach((block) => {
+    switch (block.type) {
+      case "heading":
+        children.push(new Paragraph({ text: block.text, heading: mapHeadingLevel(block.level) }))
+        break
+      case "list":
+        block.items.forEach((item) => {
+          children.push(
+            new Paragraph({
+              text: item,
+              bullet: { level: 0 },
+            }),
+          )
+        })
+        break
+      case "paragraph":
+      default:
+        children.push(new Paragraph({ children: [new TextRun(block.text)] }))
+        break
+    }
+  })
+
+  return children
+}
+
+function mapHeadingLevel(level: number) {
+  const mapping = [
+    HeadingLevel.HEADING_2,
+    HeadingLevel.HEADING_3,
+    HeadingLevel.HEADING_4,
+    HeadingLevel.HEADING_5,
+    HeadingLevel.HEADING_6,
+  ]
+  return mapping[Math.min(Math.max(level, 1), mapping.length) - 1] ?? HeadingLevel.HEADING_2
 }

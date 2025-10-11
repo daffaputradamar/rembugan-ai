@@ -1,30 +1,60 @@
-# Meeting transcript to spec
+# RembuganAI
 
-*Automatically synced with your [v0.app](https://v0.app) deployments*
+> **Saka obrolan dadi tindakan.**
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/daffa-akbars-projects/v0-meeting-transcript-to-spec)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.app-black?style=for-the-badge)](https://v0.app/chat/projects/Fo2IAsYoWNo)
+RembuganAI membantu tim produk melompat dari diskusi rapat menjadi spesifikasi produk yang siap dibagikan. Unggah transkrip, kurasi ringkasan AI, lalu ekspor draft PRD dalam sekali alur.
 
-## Overview
+[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-0f1d38?style=for-the-badge&logo=vercel)](https://vercel.com/daffa-akbars-projects/v0-meeting-transcript-to-spec)
+[![Made with Next.js](https://img.shields.io/badge/Next.js-15-102347?style=for-the-badge&logo=nextdotjs)](https://nextjs.org/)
 
-This repository will stay in sync with your deployed chats on [v0.app](https://v0.app).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.app](https://v0.app).
+## ✨ Fitur Utama
 
-## Deployment
+- **Ringkasan dua bahasa** – AI memahami bahasa Indonesia dan Inggris untuk menangkap highlight rapat.
+- **Stepper lintas tahap** – alur terstruktur: input rapat → review ringkasan → finalisasi spesifikasi.
+- **Editor spesifikasi interaktif** – susun objective, requirement, risiko, hingga user story secara modular.
+- **Ekspor instan** – download PDF/DOCX atau salin sebagai Markdown untuk masuk ke tool kolaborasi Anda.
 
-Your project is live at:
+## 🧭 Positioning
 
-**[https://vercel.com/daffa-akbars-projects/v0-meeting-transcript-to-spec](https://vercel.com/daffa-akbars-projects/v0-meeting-transcript-to-spec)**
+- **Audience**: Tim produk, PM, dan analis yang menangani banyak diskusi lintas fungsi.
+- **Value**: Menghemat waktu dokumentasi dan menjaga konteks keputusan rapat tetap rapi.
+- **Tagline**: *“Saka obrolan dadi tindakan.”*
 
-## Build your app
+## 🖌️ Palet Warna
 
-Continue building your app on:
+| Token | Warna |
+| --- | --- |
+| Primary | `#102347` (navy)
+| Secondary | `#F2B705` (emas)
+| Accent | `#D4A843` |
+| Background | `#F7F8FC` |
 
-**[https://v0.app/chat/projects/Fo2IAsYoWNo](https://v0.app/chat/projects/Fo2IAsYoWNo)**
+## 🚀 Menjalankan Secara Lokal
 
-## How It Works
+```bash
+pnpm install
+pnpm dev
+```
 
-1. Create and modify your project using [v0.app](https://v0.app)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+Akses aplikasi melalui `http://localhost:3000`.
+
+## 🧱 Teknologi
+
+- [Next.js 15](https://nextjs.org/) + App Router
+- Tailwind CSS 4 (dengan preset shadcn/ui)
+- AI pipeline via `/api/ai`
+- Editor spesifikasi kustom (`components/spec-editor.tsx`)
+
+## 📁 Struktur Penting
+
+- `app/page.tsx` – alur utama input → ringkasan → spesifikasi.
+- `components/ui/stepper.tsx` – stepper dengan konektor timelines.
+- `public/rembuganai-logo.svg` – logo gelembung percakapan beraksen batik.
+
+## 🤝 Kontribusi
+
+Saran dan issue sangat diterima! Buka pull request atau diskusi bila ingin memperluas fitur RembuganAI.
+
+---
+
+© 2025 RembuganAI. Semua hak cipta dilindungi.
