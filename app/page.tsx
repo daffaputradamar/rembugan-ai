@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Stepper, type StepStatus } from "@/components/ui/stepper"
 import { toast } from "@/components/ui/use-toast"
 import SpecEditor, { type SpecData, emptySpec, specToMarkdown } from "@/components/spec-editor"
-import { ArrowLeft, ArrowRight, Copy, Eye, FileCode2, LoaderCircle, Sparkles } from "lucide-react"
+import { ArrowLeft, ArrowRight, Copy, Eye, FileCode2, LoaderCircle, RotateCcw, Sparkles, UploadCloud } from "lucide-react"
 
 type AiMode = "summarize" | "spec"
 type Step = "input" | "summary" | "spec"
@@ -28,6 +28,7 @@ export default function HomePage() {
   const [downloading, setDownloading] = useState<"docx" | "pdf" | null>(null)
   const [step, setStep] = useState<Step>("input")
   const [summaryView, setSummaryView] = useState<"preview" | "markdown">("preview")
+  const [isDragging, setIsDragging] = useState(false)
 
   // Persist session locally (optional bonus)
   useEffect(() => {
@@ -128,12 +129,92 @@ export default function HomePage() {
     }
   }
 
+  const resetWorkflow = () => {
+    setTranscript("")
+    setSummary("")
+    setSpec(emptySpec)
+    setSummaryView("preview")
+    setStep("input")
+  }
+
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const processFiles = async (files: FileList | File[]) => {
+    if (uploading) {
+      toast({ title: "Sedang memproses", description: "Tunggu hingga unggahan saat ini selesai." })
+      return
+    }
+
+    const fileArray = Array.isArray(files) ? files : Array.from(files)
+    if (!fileArray.length) return
+
+    const accepted = fileArray.filter((file) => /\.(txt|docx)$/i.test(file.name))
+    if (!accepted.length) {
+      toast({ title: "Format tidak didukung", description: "Hanya berkas .txt atau .docx yang dapat diunggah." })
+      return
+    }
+
+    if (accepted.length < fileArray.length) {
+      toast({ title: "Beberapa berkas dilewati", description: "Hanya .txt atau .docx yang diproses." })
+    }
+
+    setUploading(true)
+    try {
+      for (const file of accepted) {
+        await onUploadFile(file)
+      }
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
+  const handleFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    await processFiles(event.target.files ?? [])
+  }
+
+  const handleBrowseClick = () => {
+    if (uploading) return
+    fileInputRef.current?.click()
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (uploading) return
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault()
+      fileInputRef.current?.click()
+    }
+  }
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    if (uploading) return
+    event.dataTransfer.dropEffect = "copy"
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    if (uploading) return
+    const related = event.relatedTarget as Node | null
+    if (related && event.currentTarget.contains(related)) return
+    setIsDragging(false)
+  }
+
+  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (uploading) return
+    setIsDragging(false)
+    const files = event.dataTransfer.files
+    if (!files?.length) return
+    await processFiles(files)
+    event.dataTransfer.clearData()
+  }
   const hasValues = (arr: string[]) => arr.some((item) => item.trim().length > 0)
   const stepItems: { key: Step; title: string; description: string }[] = [
     {
       key: "input",
-      title: "Input Rapat",
+      title: "Unggah Rapat",
       description: "Unggah catatan rapat atau tempel transkrip mentah.",
     },
     {
@@ -224,7 +305,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      <Stepper steps={stepperSteps} className="mb-12" />
+      <Stepper steps={stepperSteps} className="mb-6" />
 
       {step === "input" && (
         <section className="mx-auto flex max-w-5xl flex-col gap-6">
@@ -244,28 +325,57 @@ export default function HomePage() {
           </div>
           <Card className="overflow-hidden">
             <CardHeader className="space-y-2">
-              <CardTitle>Input Rembugan</CardTitle>
+              <CardTitle>Unggah Rembugan</CardTitle>
               <p className="text-sm text-muted-foreground">
                 Unggah atau tempelkan transkrip rapat, lalu biarkan RembuganAI mengolahnya menjadi ringkasan bernas.
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <Label htmlFor="file">Upload (.txt atau .docx)</Label>
+              <div className="space-y-2">
+                <Label htmlFor="file" className="text-sm font-medium">
+                  Upload (.txt atau .docx)
+                </Label>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleBrowseClick}
+                  onKeyDown={handleKeyDown}
+                  onDragOver={handleDragOver}
+                  onDragEnter={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  aria-disabled={uploading}
+                  aria-label="Unggah berkas dengan drag and drop atau klik untuk memilih"
+                  className={`group flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                    uploading
+                      ? "cursor-not-allowed border-border bg-muted/60 text-muted-foreground"
+                      : isDragging
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "cursor-pointer border-border bg-muted/40 text-muted-foreground hover:border-primary/50 hover:bg-primary/5"
+                  }`}
+                >
+                  <UploadCloud className={`h-8 w-8 transition ${isDragging ? "text-primary" : "text-primary/70"}`} />
+                  <p className="mt-3 text-sm font-medium text-foreground">Drag & Drop transkrip Anda</p>
+                  <p className="text-xs text-muted-foreground">
+                    {uploading ? "Sedang memproses berkas…" : "Atau klik untuk memilih .txt atau .docx"}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="pointer-events-none mt-4"
+                  >
+                    Browse Files
+                  </Button>
+                </div>
                 <Input
                   id="file"
                   ref={fileInputRef}
                   type="file"
                   accept=".txt,.docx"
                   disabled={uploading}
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0]
-                    if (!file) return
-                    setUploading(true)
-                    await onUploadFile(file)
-                    setUploading(false)
-                    if (fileInputRef.current) fileInputRef.current.value = ""
-                  }}
+                  onChange={handleFileInputChange}
+                  className="sr-only"
                 />
               </div>
               <div className="space-y-2">
@@ -291,16 +401,7 @@ export default function HomePage() {
                   )}
                   {loading === "summarize" ? "Merangkum…" : "Ringkas Otomatis"}
                 </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setTranscript("")
-                    setSummary("")
-                    setSpec(emptySpec)
-                    setSummaryView("preview")
-                    setStep("input")
-                  }}
-                >
+                <Button variant="ghost" onClick={resetWorkflow}>
                   Reset
                 </Button>
               </div>
@@ -314,7 +415,7 @@ export default function HomePage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button className="gap-2" variant="ghost" onClick={() => setStep("input")}>
               <ArrowLeft className="h-4 w-4" />
-              Kembali ke Input
+              Kembali ke Unggah Transkrip
             </Button>
             <Button variant="ghost" onClick={() => setStep("spec")} disabled={!specHasContent}>
               <ArrowRight /> Lihat Spesifikasi
@@ -408,9 +509,15 @@ export default function HomePage() {
               <ArrowLeft className="h-4 w-4" />
               Kembali ke Ringkasan
             </Button>
-              <Button variant="outline" onClick={() => callAI("summarize", "summary")} disabled={loading !== null}>
-                {loading === "summarize" ? "Merangkum…" : "Ringkas Ulang"}
-              </Button>
+            <Button
+                  variant="outline"
+                  onClick={resetWorkflow}
+                  className="gap-2"
+                  disabled={!!downloading || loading !== null}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Reset Semua
+                </Button>
           </div>
 
           <Card className="border-primary/40 shadow-xl shadow-primary/10">
