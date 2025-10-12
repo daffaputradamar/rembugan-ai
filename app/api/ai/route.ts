@@ -1,10 +1,11 @@
 import type { NextRequest } from "next/server"
-import { generateText } from "ai"
-import { google } from '@ai-sdk/google';
+import { generateObject, generateText } from "ai"
+import { google } from "@ai-sdk/google"
+import { z } from "zod"
 
 
 // Note: Next.js handles provider configuration via the AI Gateway. You only pass a model string.
-const MODEL =  google('gemini-2.5-flash');
+const MODEL = google("gemini-2.5-flash")
 
 const systemPreamble = `
 You are an expert product manager and technical writer.
@@ -28,32 +29,42 @@ ${text}
 const specPrompt = (text: string) => `
 ${systemPreamble}
 
-Task: From the following meeting transcript, produce:
-1) A short summary (<= 150 words) written in Bahasa Indonesia
-2) A structured Product Specification in strict JSON with these keys:
-{
-  "productOverview": string,
-  "objectives": string[],
-  "keyFeatures": string[],
-  "functionalRequirements": string[],
-  "nonFunctionalRequirements": string[],
-  "userStories": string[],
-  "constraintsRisks": string[],
-  "openQuestions": string[],
-  "uiUxRequirements": string[]
-}
-
-Rules:
-- Return ONLY valid JSON in a top-level object with keys "summary" and "spec".
-- "spec" must match the schema above.
-- No markdown, no comments.
-- Semua nilai string dan elemen array harus menggunakan Bahasa Indonesia yang alami.
+Tugas: Dari transkrip rapat berikut, lengkapi data produk dengan Bahasa Indonesia yang ringkas dan jelas.
+- "summary": ringkasan <= 150 kata.
+- "spec.productOverview": konteks produk.
+- "spec.*": isi daftar poin (boleh kosong jika tidak relevan).
 
 Transcript:
 """
 ${text}
 """
 `
+
+const listField = (description: string) => z.array(z.string().min(1).describe(description)).describe(description)
+
+const specSchema = z.object({
+  summary: z
+    .string()
+    .min(1)
+    .max(800)
+    .describe("Ringkasan rapat dalam Bahasa Indonesia, maksimum 150 kata."),
+  spec: z.object({
+    productOverview: z
+      .string()
+      .min(1)
+      .describe("Gambaran singkat produk dan latar belakangnya."),
+    objectives: listField("Daftar tujuan utama yang ingin dicapai."),
+    keyFeatures: listField("Fitur kunci yang disorot dalam diskusi."),
+    functionalRequirements: listField("Kebutuhan fungsional sistem."),
+    nonFunctionalRequirements: listField("Kebutuhan non-fungsional seperti performa atau keamanan."),
+    userStories: listField("User story dalam format Bahasa Indonesia."),
+    constraintsRisks: listField("Keterbatasan atau risiko yang harus diperhatikan."),
+    openQuestions: listField("Pertanyaan terbuka yang belum terjawab."),
+    uiUxRequirements: listField("Kebutuhan antarmuka atau pengalaman pengguna."),
+  }),
+})
+
+type SpecResult = z.infer<typeof specSchema>
 
 export async function POST(req: NextRequest) {
   const { text, mode } = await req.json()
@@ -73,34 +84,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (mode === "spec") {
-      const { text: out } = await generateText({
+      const result = await generateObject({
         model: MODEL,
+        schema: specSchema,
         prompt: specPrompt(text),
       })
 
-      console.log("Spec output:", out);
-      
-      let summary = ""
-      let spec: any = null
-      try {
-        const parsed = JSON.parse(out || "{}")
-        summary = parsed.summary || ""
-        spec = parsed.spec || null
-      } catch {
-        // Fallback: try to salvage JSON if model added extra text
-        const match = out?.match(/\{[\s\S]*\}/)
-        if (match) {
-          try {
-            const parsed = JSON.parse(match[0])
-            summary = parsed.summary || ""
-            spec = parsed.spec || null
-          } catch {}
-        }
-      }
-
-      if (!spec) {
-        return new Response(JSON.stringify({ error: "Model did not return valid spec JSON." }), { status: 502 })
-      }
+      const data: SpecResult = result.object
+      const { summary, spec } = data
 
       return new Response(JSON.stringify({ summary, spec }), {
         headers: { "Content-Type": "application/json" },
@@ -108,7 +99,8 @@ export async function POST(req: NextRequest) {
     }
 
     return new Response(JSON.stringify({ error: "Unsupported mode" }), { status: 400 })
-  } catch (err: any) {
-    return new Response(JSON.stringify({ error: err?.message || "AI error" }), { status: 500 })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "AI error"
+    return new Response(JSON.stringify({ error: message }), { status: 500 })
   }
 }

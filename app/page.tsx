@@ -420,13 +420,12 @@ export default function HomePage() {
                   onDrop={handleDrop}
                   aria-disabled={uploading}
                   aria-label="Unggah berkas dengan drag and drop atau klik untuk memilih"
-                  className={`group flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
-                    uploading
+                  className={`group flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${uploading
                       ? "cursor-not-allowed border-border bg-muted/60 text-muted-foreground"
                       : isDragging
                         ? "border-primary bg-primary/10 text-foreground"
                         : "cursor-pointer border-border bg-muted/40 text-muted-foreground hover:border-primary/50 hover:bg-primary/5"
-                  }`}
+                    }`}
                 >
                   <UploadCloud className={`h-8 w-8 transition ${isDragging ? "text-primary" : "text-primary/70"}`} />
                   <p className="mt-3 text-sm font-medium text-foreground">Seret & lepas transkrip Anda</p>
@@ -631,40 +630,44 @@ export default function HomePage() {
                   </div>
                 </div>
               </div>
-              <div className="grid gap-3 md:grid-cols-[minmax(0,2fr),minmax(0,1fr)] md:items-end">
-                <div className="space-y-1">
-                  <Label htmlFor="project-name" className="text-sm font-medium">
-                    Nama Proyek (Outline)
-                  </Label>
-                  <Input
-                    id="project-name"
-                    placeholder="Contoh: RembuganAI Sprint Q4"
-                    value={projectName}
-                    onChange={(event) => setProjectName(event.target.value)}
-                    disabled={syncingOutline}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Nama ini digunakan sebagai koleksi saat migrasi ke Outline.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  onClick={migrateToOutline}
-                  size={"lg"}
-                  className="gap-2 md:justify-self-end"
-                  disabled={
-                    syncingOutline ||
-                    loading !== null ||
-                    !!downloading ||
-                    uploading ||
-                    (!specHasContent && !summary.trim()) ||
-                    !projectName.trim()
-                  }
-                >
-                  {syncingOutline ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <NotebookPen className="h-4 w-4" />}
-                  Migrasi ke Outline
-                </Button>
-              </div>
+              {
+                process.env.NEXT_PUBLIC_OUTLINE_BASE_URL && (
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,2fr),minmax(0,1fr)] md:items-end">
+                    <div className="space-y-1">
+                      <Label htmlFor="project-name" className="text-sm font-medium">
+                        Nama Proyek (Outline)
+                      </Label>
+                      <Input
+                        id="project-name"
+                        placeholder="Contoh: RembuganAI Sprint Q4"
+                        value={projectName}
+                        onChange={(event) => setProjectName(event.target.value)}
+                        disabled={syncingOutline}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Nama ini digunakan sebagai koleksi saat migrasi ke Outline.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={migrateToOutline}
+                      size={"lg"}
+                      className="gap-2 md:justify-self-end"
+                      disabled={
+                        syncingOutline ||
+                        loading !== null ||
+                        !!downloading ||
+                        uploading ||
+                        (!specHasContent && !summary.trim()) ||
+                        !projectName.trim()
+                      }
+                    >
+                      {syncingOutline ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <NotebookPen className="h-4 w-4" />}
+                      Migrasi ke Outline
+                    </Button>
+                  </div>
+                )
+              }
               <SpecEditor value={spec} onChange={setSpec} />
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" onClick={() => callAI("spec")} disabled={loading !== null}>
