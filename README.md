@@ -13,6 +13,7 @@ RembuganAI membantu tim produk melompat dari diskusi rapat menjadi spesifikasi p
 - **Stepper lintas tahap** – alur terstruktur: input rapat → review ringkasan → finalisasi spesifikasi.
 - **Editor spesifikasi interaktif** – susun objective, requirement, risiko, hingga user story secara modular.
 - **Ekspor instan** – download PDF/DOCX atau salin sebagai Markdown untuk masuk ke tool kolaborasi Anda.
+- **Integrasi Outline** – kirim spesifikasi langsung ke koleksi Outline hanya dengan memasukkan nama proyek.
 
 ## 🧭 Positioning
 
@@ -37,6 +38,18 @@ pnpm dev
 ```
 
 Akses aplikasi melalui `http://localhost:3000`.
+
+### Konfigurasi Outline (Opsional)
+
+Tambahkan variabel berikut ke `.env.local` bila ingin mengaktifkan migrasi ke Outline:
+
+```bash
+OUTLINE_API_TOKEN="token_personal_outline"
+# (Opsional) Sesuaikan bila menggunakan custom domain Outline
+OUTLINE_API_BASE_URL="https://app.getoutline.com"
+```
+
+Token dapat diperoleh dari menu **Settings → API Tokens** di Outline. Nama proyek yang dimasukkan pengguna akan digunakan sebagai nama koleksi tujuan.
 
 ## 🧱 Teknologi
 

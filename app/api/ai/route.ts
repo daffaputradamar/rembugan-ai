@@ -78,6 +78,8 @@ export async function POST(req: NextRequest) {
         prompt: specPrompt(text),
       })
 
+      console.log("Spec output:", out);
+      
       let summary = ""
       let spec: any = null
       try {

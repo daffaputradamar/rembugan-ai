@@ -13,7 +13,18 @@ import { Label } from "@/components/ui/label"
 import { Stepper, type StepStatus } from "@/components/ui/stepper"
 import { toast } from "@/components/ui/use-toast"
 import SpecEditor, { type SpecData, emptySpec, specToMarkdown } from "@/components/spec-editor"
-import { ArrowLeft, ArrowRight, Copy, Eye, FileCode2, LoaderCircle, RotateCcw, Sparkles, UploadCloud } from "lucide-react"
+import {
+  ArrowLeft,
+  ArrowRight,
+  Copy,
+  Eye,
+  FileCode2,
+  LoaderCircle,
+  NotebookPen,
+  RotateCcw,
+  Sparkles,
+  UploadCloud,
+} from "lucide-react"
 
 type AiMode = "summarize" | "spec"
 type Step = "input" | "summary" | "spec"
@@ -29,6 +40,8 @@ export default function HomePage() {
   const [step, setStep] = useState<Step>("input")
   const [summaryView, setSummaryView] = useState<"preview" | "markdown">("preview")
   const [isDragging, setIsDragging] = useState(false)
+  const [projectName, setProjectName] = useState("")
+  const [syncingOutline, setSyncingOutline] = useState(false)
 
   // Persist session locally (optional bonus)
   useEffect(() => {
@@ -39,15 +52,16 @@ export default function HomePage() {
         setTranscript(parsed.transcript || "")
         setSummary(parsed.summary || "")
         setSpec(parsed.spec || emptySpec)
+        setProjectName(parsed.projectName || "")
       }
     } catch { }
   }, [])
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ transcript, summary, spec }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ transcript, summary, spec, projectName }))
     } catch { }
-  }, [transcript, summary, spec])
+  }, [transcript, summary, spec, projectName])
 
   async function callAI(mode: AiMode, nextStep?: Step) {
     if (!transcript.trim()) {
@@ -135,6 +149,7 @@ export default function HomePage() {
     setSpec(emptySpec)
     setSummaryView("preview")
     setStep("input")
+    setProjectName("")
   }
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -210,6 +225,7 @@ export default function HomePage() {
     await processFiles(files)
     event.dataTransfer.clearData()
   }
+
   const hasValues = (arr: string[]) => arr.some((item) => item.trim().length > 0)
   const stepItems: { key: Step; title: string; description: string }[] = [
     {
@@ -257,9 +273,65 @@ export default function HomePage() {
     }
   })
 
+  const migrateToOutline = async () => {
+    if (syncingOutline || loading !== null || downloading || uploading) return
+    const name = projectName.trim()
+    if (!name) {
+      toast({ title: "Nama proyek diperlukan", description: "Masukkan nama proyek untuk membuat koleksi di Outline." })
+      return
+    }
+    if (!summary.trim() && !specHasContent) {
+      toast({ title: "Tidak ada konten", description: "Buat ringkasan atau spesifikasi sebelum migrasi." })
+      return
+    }
+
+    const markdown = specToMarkdown(spec, summary)
+    if (!markdown.trim()) {
+      toast({ title: "Tidak ada konten", description: "Spesifikasi kosong tidak dapat dikirim ke Outline." })
+      return
+    }
+
+    setSyncingOutline(true)
+    try {
+      const res = await fetch("/api/integrations/outline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectName: name, markdown, summary }),
+      })
+
+      if (!res.ok) {
+        const message = await res.text()
+        throw new Error(message || "Outline response error")
+      }
+
+      const data = (await res.json()) as {
+        collection?: { name: string; url?: string }
+        document?: { title: string; url?: string }
+      }
+
+      toast({
+        title: "Berhasil dikirim ke Outline",
+        description: data.document?.title
+          ? `${data.document.title} tersimpan di koleksi ${data.collection?.name ?? name}.`
+          : `Konten berhasil disimpan ke Outline.`,
+      })
+
+      if (data.document?.url) {
+        window.open(`${process.env.NEXT_PUBLIC_OUTLINE_BASE_URL}${data.document.url}`, "_blank", "noopener")
+      } else if (data.collection?.url) {
+        window.open(`${process.env.NEXT_PUBLIC_OUTLINE_BASE_URL}${data.collection.url}`, "_blank", "noopener")
+      }
+    } catch (error: unknown) {
+      const description = error instanceof Error ? error.message : "Gagal mengirim ke Outline"
+      toast({ title: "Migrasi Outline gagal", description })
+    } finally {
+      setSyncingOutline(false)
+    }
+  }
+
   return (
     <main className="relative mx-auto max-w-6xl p-4 sm:p-6 md:p-10">
-      {(loading !== null || uploading || downloading !== null) && (
+      {(loading !== null || uploading || downloading !== null || syncingOutline) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-3 rounded-2xl border border-primary/20 bg-card px-6 py-5 text-center shadow-lg shadow-primary/10">
             <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
@@ -271,9 +343,11 @@ export default function HomePage() {
                     ? "Menyiapkan dokumen DOCX"
                     : downloading === "pdf"
                       ? "Menyiapkan dokumen PDF"
-                      : loading === "summarize"
-                        ? "AI sedang merangkum"
-                        : "AI sedang menyusun spesifikasi"}
+                      : syncingOutline
+                        ? "Mengirim dokumen ke Outline"
+                        : loading === "summarize"
+                          ? "AI sedang merangkum"
+                          : "AI sedang menyusun spesifikasi"}
               </p>
               <p className="text-xs text-muted-foreground">Mohon tunggu, RembuganAI sedang bekerja.</p>
             </div>
@@ -355,7 +429,7 @@ export default function HomePage() {
                   }`}
                 >
                   <UploadCloud className={`h-8 w-8 transition ${isDragging ? "text-primary" : "text-primary/70"}`} />
-                  <p className="mt-3 text-sm font-medium text-foreground">Drag & Drop transkrip Anda</p>
+                  <p className="mt-3 text-sm font-medium text-foreground">Seret & lepas transkrip Anda</p>
                   <p className="text-xs text-muted-foreground">
                     {uploading ? "Sedang memproses berkas…" : "Atau klik untuk memilih .txt atau .docx"}
                   </p>
@@ -365,7 +439,7 @@ export default function HomePage() {
                     size="sm"
                     className="pointer-events-none mt-4"
                   >
-                    Browse Files
+                    Telusuri berkas
                   </Button>
                 </div>
                 <Input
@@ -510,14 +584,14 @@ export default function HomePage() {
               Kembali ke Ringkasan
             </Button>
             <Button
-                  variant="outline"
-                  onClick={resetWorkflow}
-                  className="gap-2"
-                  disabled={!!downloading || loading !== null}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  Reset Semua
-                </Button>
+              variant="outline"
+              onClick={resetWorkflow}
+              className="gap-2"
+              disabled={!!downloading || loading !== null || syncingOutline}
+            >
+              <RotateCcw className="h-4 w-4" />
+              Reset Semua
+            </Button>
           </div>
 
           <Card className="border-primary/40 shadow-xl shadow-primary/10">
@@ -556,6 +630,40 @@ export default function HomePage() {
                     <div>Ekspor ke DOCX, PDF, atau kirim Markdown langsung ke workspace tim.</div>
                   </div>
                 </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,2fr),minmax(0,1fr)] md:items-end">
+                <div className="space-y-1">
+                  <Label htmlFor="project-name" className="text-sm font-medium">
+                    Nama Proyek (Outline)
+                  </Label>
+                  <Input
+                    id="project-name"
+                    placeholder="Contoh: RembuganAI Sprint Q4"
+                    value={projectName}
+                    onChange={(event) => setProjectName(event.target.value)}
+                    disabled={syncingOutline}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Nama ini digunakan sebagai koleksi saat migrasi ke Outline.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  onClick={migrateToOutline}
+                  size={"lg"}
+                  className="gap-2 md:justify-self-end"
+                  disabled={
+                    syncingOutline ||
+                    loading !== null ||
+                    !!downloading ||
+                    uploading ||
+                    (!specHasContent && !summary.trim()) ||
+                    !projectName.trim()
+                  }
+                >
+                  {syncingOutline ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <NotebookPen className="h-4 w-4" />}
+                  Migrasi ke Outline
+                </Button>
               </div>
               <SpecEditor value={spec} onChange={setSpec} />
               <div className="flex flex-wrap gap-2">
