@@ -13,6 +13,7 @@ type SpecData = {
   constraintsRisks: string[]
   openQuestions: string[]
   uiUxRequirements: string[]
+  layoutDiagram: string
 }
 
 export async function POST(req: NextRequest) {
@@ -26,6 +27,7 @@ export async function POST(req: NextRequest) {
   let y = pageSize[1] - margin
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+  const courier = await pdfDoc.embedFont(StandardFonts.Courier)
   const fontSize = 11
 
   function writeTitle(text: string) {
@@ -68,6 +70,22 @@ export async function POST(req: NextRequest) {
         })
       })
     y -= 4
+  }
+
+  function writeMonospace(text: string) {
+    if (!text) return
+    const lines = text.split(/\r?\n/)
+    lines.forEach((line) => {
+      ensureLine(12)
+      page.drawText(line, {
+        x: margin,
+        y,
+        size: 9,
+        font: courier,
+        color: rgb(0.2, 0.2, 0.2),
+      })
+    })
+    y -= 6
   }
 
   function newPage() {
@@ -129,6 +147,11 @@ export async function POST(req: NextRequest) {
   section("Constraints / Risks", spec.constraintsRisks)
   section("Open Questions", spec.openQuestions)
   section("UI/UX Requirements", spec.uiUxRequirements)
+
+  if (spec.layoutDiagram) {
+    writeHeading("Layout Diagram")
+    writeMonospace(spec.layoutDiagram)
+  }
 
   function section(title: string, items: string[]) {
     if (!items || items.length === 0) return

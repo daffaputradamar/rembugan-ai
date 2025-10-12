@@ -61,6 +61,9 @@ const specSchema = z.object({
     constraintsRisks: listField("Keterbatasan atau risiko yang harus diperhatikan."),
     openQuestions: listField("Pertanyaan terbuka yang belum terjawab."),
     uiUxRequirements: listField("Kebutuhan antarmuka atau pengalaman pengguna."),
+    layoutDiagram: z
+      .string()
+      .describe("Diagram ASCII yang menunjukkan tata letak UI dan penempatan elemen secara visual. Gunakan karakter ASCII untuk membuat wireframe sederhana dari interface."),
   }),
 })
 

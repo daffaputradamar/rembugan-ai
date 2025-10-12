@@ -16,6 +16,7 @@ export type SpecData = {
   constraintsRisks: string[]
   openQuestions: string[]
   uiUxRequirements: string[]
+  layoutDiagram: string
 }
 
 export const emptySpec: SpecData = {
@@ -28,6 +29,7 @@ export const emptySpec: SpecData = {
   constraintsRisks: [],
   openQuestions: [],
   uiUxRequirements: [],
+  layoutDiagram: "",
 }
 
 export function specToMarkdown(spec: SpecData, summary?: string) {
@@ -53,6 +55,9 @@ export function specToMarkdown(spec: SpecData, summary?: string) {
   addList("Constraints / Risks", spec.constraintsRisks)
   addList("Open Questions", spec.openQuestions)
   addList("UI/UX Requirements", spec.uiUxRequirements)
+  if (spec.layoutDiagram) {
+    lines.push("## Layout Diagram", "", "```", spec.layoutDiagram, "```", "")
+  }
   return lines.join("\n")
 }
 
@@ -188,6 +193,16 @@ export default function SpecEditor({
         onChange={(arr) => onChange({ ...value, uiUxRequirements: arr })}
         placeholder="e.g., Clean two-column layout with responsive design"
       />
+      <div className="space-y-2">
+        <Label htmlFor="layoutDiagram">Layout Diagram</Label>
+        <Textarea
+          id="layoutDiagram"
+          placeholder="ASCII diagram showing UI layout and element placement..."
+          value={value.layoutDiagram}
+          onChange={(e) => onChange({ ...value, layoutDiagram: e.target.value })}
+          className="min-h-[200px] font-mono text-sm"
+        />
+      </div>
     </div>
   )
 }

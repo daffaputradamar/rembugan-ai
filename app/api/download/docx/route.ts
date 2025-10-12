@@ -13,6 +13,7 @@ type SpecData = {
   constraintsRisks: string[]
   openQuestions: string[]
   uiUxRequirements: string[]
+  layoutDiagram: string
 }
 
 export async function POST(req: NextRequest) {
@@ -45,6 +46,25 @@ export async function POST(req: NextRequest) {
           ...listSection("Constraints / Risks", spec.constraintsRisks),
           ...listSection("Open Questions", spec.openQuestions),
           ...listSection("UI/UX Requirements", spec.uiUxRequirements),
+          ...(spec.layoutDiagram
+            ? [
+                new Paragraph({
+                  text: "Layout Diagram",
+                  heading: HeadingLevel.HEADING_2,
+                }),
+                ...spec.layoutDiagram.split(/\r?\n/).map(
+                  (line) =>
+                    new Paragraph({
+                      children: [
+                        new TextRun({
+                          text: line,
+                          font: "Courier New",
+                        }),
+                      ],
+                    }),
+                ),
+              ]
+            : []),
         ],
       },
     ],
