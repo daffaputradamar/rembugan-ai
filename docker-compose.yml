@@ -1,0 +1,11 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rembuganai
+    env_file:
+      - .env
+    
+    ports:
+      - "3338:3000"
