@@ -12,7 +12,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Stepper, type StepStatus } from "@/components/ui/stepper"
 import { toast } from "@/components/ui/use-toast"
-import SpecEditor, { type SpecData, emptySpec, specToMarkdown } from "@/components/spec-editor"
+import SpecEditor, { 
+  type SpecData, 
+  emptySpec
+} from "@/components/spec-editor"
+import {
+  urdToMarkdown,
+  analysisDesignToMarkdown,
+  testScenarioToMarkdown,
+  specToMarkdown
+} from "@/lib/spec-markdown"
 import {
   ArrowLeft,
   ArrowRight,
@@ -42,6 +51,7 @@ export default function HomePage() {
   const [isDragging, setIsDragging] = useState(false)
   const [projectName, setProjectName] = useState("")
   const [syncingOutline, setSyncingOutline] = useState(false)
+  const [generatingStep, setGeneratingStep] = useState<"urd" | "analysisDesign" | "testScenario" | null>(null)
 
   // Persist session locally (optional bonus)
   useEffect(() => {
@@ -63,6 +73,17 @@ export default function HomePage() {
     } catch { }
   }, [transcript, summary, spec, projectName])
 
+  // Helper function to clean escaped newlines in diagrams
+  const cleanDiagrams = (data: any) => {
+    if (data.useCaseDiagram) data.useCaseDiagram = data.useCaseDiagram.replace(/\\n/g, '\n')
+    if (data.erdDiagram) data.erdDiagram = data.erdDiagram.replace(/\\n/g, '\n')
+    if (data.systemArchitecture) data.systemArchitecture = data.systemArchitecture.replace(/\\n/g, '\n')
+    if (data.containerDiagram) data.containerDiagram = data.containerDiagram.replace(/\\n/g, '\n')
+    if (data.sequenceDiagram) data.sequenceDiagram = data.sequenceDiagram.replace(/\\n/g, '\n')
+    if (data.deploymentArchitecture) data.deploymentArchitecture = data.deploymentArchitecture.replace(/\\n/g, '\n')
+    return data
+  }
+
   async function callAI(mode: AiMode, nextStep?: Step) {
     if (!transcript.trim()) {
       toast({ title: "Transkrip belum diisi", description: "Unggah atau tempelkan teks rapat terlebih dahulu." })
@@ -70,25 +91,57 @@ export default function HomePage() {
     }
     setLoading(mode)
     try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: transcript, mode }),
-      })
-      if (!res.ok) throw new Error("AI request failed")
-      const data = await res.json()
       if (mode === "summarize") {
+        const res = await fetch("/api/ai", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: transcript, mode }),
+        })
+        if (!res.ok) throw new Error("AI request failed")
+        const data = await res.json()
         setSummary(data.summary || "")
         if (nextStep === "summary") setSummaryView("preview")
         if (nextStep) setStep(nextStep)
       } else {
-        setSpec(data.spec || emptySpec)
-        if (!summary && data.summary) setSummary(data.summary)
+        // Generate specs in 3 steps
+        const steps: Array<"urd" | "analysisDesign" | "testScenario"> = ["urd", "analysisDesign", "testScenario"]
+        
+        for (const docStep of steps) {
+          setGeneratingStep(docStep)
+          const res = await fetch("/api/ai", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: transcript, mode: "spec", step: docStep }),
+          })
+          if (!res.ok) throw new Error(`Failed to generate ${docStep}`)
+          const data = await res.json()
+          
+          // Clean up any escaped newlines in diagrams
+          if (docStep === "analysisDesign" && data.analysisDesign) {
+            data.analysisDesign = cleanDiagrams(data.analysisDesign)
+          }
+          
+          // Update spec progressively
+          setSpec((prevSpec) => ({
+            ...prevSpec,
+            [docStep]: data[docStep] || prevSpec[docStep],
+          }))
+          
+          // Show success toast for each completed document
+          const docName = docStep === "urd" ? "URD" : docStep === "analysisDesign" ? "Analysis & Design" : "Test Scenario"
+          toast({ 
+            title: `${docName} selesai`,
+            description: `Dokumen ${docName} telah berhasil dibuat.`,
+          })
+        }
+        
+        setGeneratingStep(null)
         if (nextStep) setStep(nextStep)
       }
     } catch (error: unknown) {
       const description = error instanceof Error ? error.message : "Please try again."
       toast({ title: "Something went wrong", description })
+      setGeneratingStep(null)
     } finally {
       setLoading(null)
     }
@@ -247,15 +300,17 @@ export default function HomePage() {
   const currentStepIndex = stepItems.findIndex((s) => s.key === step)
   const summaryHasContent = summary.trim().length > 0
   const specHasContent =
-    spec.productOverview.trim().length > 0 ||
-    hasValues(spec.objectives) ||
-    hasValues(spec.keyFeatures) ||
-    hasValues(spec.functionalRequirements) ||
-    hasValues(spec.nonFunctionalRequirements) ||
-    hasValues(spec.userStories) ||
-    hasValues(spec.constraintsRisks) ||
-    hasValues(spec.openQuestions) ||
-    hasValues(spec.uiUxRequirements)
+    spec.urd.projectName.trim().length > 0 ||
+    spec.urd.background.trim().length > 0 ||
+    spec.urd.objective.trim().length > 0 ||
+    hasValues(spec.urd.inScope) ||
+    hasValues(spec.urd.outOfScope) ||
+    spec.urd.functionalRequirements.length > 0 ||
+    spec.urd.nonFunctionalRequirements.length > 0 ||
+    spec.analysisDesign.projectName.trim().length > 0 ||
+    spec.analysisDesign.objective.trim().length > 0 ||
+    spec.testScenario.projectName.trim().length > 0 ||
+    spec.testScenario.objective.trim().length > 0
   const stepperSteps = stepItems.map((item, idx) => {
     const status: StepStatus = idx < currentStepIndex ? "complete" : idx === currentStepIndex ? "current" : "upcoming"
     let onSelect: (() => void) | undefined
@@ -285,8 +340,12 @@ export default function HomePage() {
       return
     }
 
-    const markdown = specToMarkdown(spec, summary)
-    if (!markdown.trim()) {
+    // Generate separate markdown for each document
+    const urd = urdToMarkdown(spec.urd, summary)
+    const analysisDesign = analysisDesignToMarkdown(spec.analysisDesign)
+    const testScenario = testScenarioToMarkdown(spec.testScenario)
+
+    if (!urd.trim() && !analysisDesign.trim() && !testScenario.trim()) {
       toast({ title: "Tidak ada konten", description: "Spesifikasi kosong tidak dapat dikirim ke Outline." })
       return
     }
@@ -296,7 +355,13 @@ export default function HomePage() {
       const res = await fetch("/api/integrations/outline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectName: name, markdown, summary }),
+        body: JSON.stringify({ 
+          projectName: name, 
+          urd, 
+          analysisDesign, 
+          testScenario, 
+          summary 
+        }),
       })
 
       if (!res.ok) {
@@ -306,18 +371,20 @@ export default function HomePage() {
 
       const data = (await res.json()) as {
         collection?: { name: string; url?: string }
-        document?: { title: string; url?: string }
+        documents?: Array<{ title: string; url?: string }>
       }
 
+      const docCount = data.documents?.length || 0
       toast({
         title: "Berhasil dikirim ke Outline",
-        description: data.document?.title
-          ? `${data.document.title} tersimpan di koleksi ${data.collection?.name ?? name}.`
+        description: docCount > 0
+          ? `${docCount} dokumen tersimpan di koleksi ${data.collection?.name ?? name}.`
           : `Konten berhasil disimpan ke Outline.`,
       })
 
-      if (data.document?.url) {
-        window.open(`${process.env.NEXT_PUBLIC_OUTLINE_BASE_URL}${data.document.url}`, "_blank", "noopener")
+      // Open the first document or collection
+      if (data.documents?.[0]?.url) {
+        window.open(`${process.env.NEXT_PUBLIC_OUTLINE_BASE_URL}${data.documents[0].url}`, "_blank", "noopener")
       } else if (data.collection?.url) {
         window.open(`${process.env.NEXT_PUBLIC_OUTLINE_BASE_URL}${data.collection.url}`, "_blank", "noopener")
       }
@@ -347,9 +414,19 @@ export default function HomePage() {
                         ? "Mengirim dokumen ke Outline"
                         : loading === "summarize"
                           ? "AI sedang merangkum"
-                          : "AI sedang menyusun spesifikasi"}
+                          : generatingStep === "urd"
+                            ? "Membuat User Requirement Document (1/3)"
+                            : generatingStep === "analysisDesign"
+                              ? "Membuat Analysis & Design Document (2/3)"
+                              : generatingStep === "testScenario"
+                                ? "Membuat Test Scenario Document (3/3)"
+                                : "AI sedang menyusun spesifikasi"}
               </p>
-              <p className="text-xs text-muted-foreground">Mohon tunggu, RembuganAI sedang bekerja.</p>
+              <p className="text-xs text-muted-foreground">
+                {generatingStep 
+                  ? "Dokumen yang selesai akan langsung ditampilkan."
+                  : "Mohon tunggu, RembuganAI sedang bekerja."}
+              </p>
             </div>
           </div>
         </div>

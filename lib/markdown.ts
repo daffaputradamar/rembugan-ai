@@ -2,11 +2,13 @@ export type MarkdownBlock =
   | { type: "heading"; level: number; text: string }
   | { type: "paragraph"; text: string }
   | { type: "list"; items: string[] }
+  | { type: "code"; text: string }
 
 const INLINE_TOKENS = /[*_`~]/g
 const HEADING_PATTERN = /^(#{1,6})\s+/
 const BULLET_PATTERN = /^[-*+]\s+/
 const ORDERED_PATTERN = /^\d+\.\s+/
+const CODE_FENCE = /^```/
 
 export function stripInlineMarkdown(input: string) {
   if (!input) return ""
@@ -27,6 +29,8 @@ export function parseMarkdownToBlocks(markdown: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = []
   let paragraphBuffer: string[] = []
   let listBuffer: string[] | null = null
+  let codeBuffer: string[] | null = null
+  let inCodeBlock = false
 
   const flushParagraph = () => {
     if (!paragraphBuffer.length) return
@@ -43,8 +47,38 @@ export function parseMarkdownToBlocks(markdown: string): MarkdownBlock[] {
     listBuffer = null
   }
 
+  const flushCode = () => {
+    if (!codeBuffer || codeBuffer.length === 0) return
+    blocks.push({ type: "code", text: codeBuffer.join("\n") })
+    codeBuffer = null
+  }
+
   for (const raw of lines) {
     const line = raw.trim()
+    
+    // Check for code fence
+    if (CODE_FENCE.test(line)) {
+      if (inCodeBlock) {
+        // Closing fence
+        flushCode()
+        inCodeBlock = false
+      } else {
+        // Opening fence
+        flushParagraph()
+        flushList()
+        inCodeBlock = true
+        codeBuffer = []
+      }
+      continue
+    }
+
+    // If inside code block, just accumulate lines
+    if (inCodeBlock) {
+      if (!codeBuffer) codeBuffer = []
+      codeBuffer.push(raw) // Use raw to preserve formatting
+      continue
+    }
+    
     if (!line) {
       flushParagraph()
       flushList()
@@ -78,6 +112,7 @@ export function parseMarkdownToBlocks(markdown: string): MarkdownBlock[] {
 
   flushParagraph()
   flushList()
+  flushCode()
 
   return blocks
 }

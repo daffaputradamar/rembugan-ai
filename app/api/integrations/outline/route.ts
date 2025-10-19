@@ -59,9 +59,11 @@ async function outlineRequest<T>(endpoint: string, body: Record<string, unknown>
 
 export async function POST(req: NextRequest) {
   try {
-    const { projectName, markdown, summary } = (await req.json()) as {
+    const { projectName, urd, analysisDesign, testScenario, summary } = (await req.json()) as {
       projectName?: string
-      markdown?: string
+      urd?: string
+      analysisDesign?: string
+      testScenario?: string
       summary?: string
     }
 
@@ -74,10 +76,12 @@ export async function POST(req: NextRequest) {
       return new Response("Project name is required.", { status: 400 })
     }
 
-    if (!markdown || !markdown.trim()) {
+    // Validate at least one document is provided
+    if ((!urd || !urd.trim()) && (!analysisDesign || !analysisDesign.trim()) && (!testScenario || !testScenario.trim())) {
       return new Response("No document content provided.", { status: 400 })
     }
 
+    // Find or create collection
     let collection: OutlineCollection | undefined
     try {
       const collections = await outlineRequest<OutlineCollection[]>("collections.list", { limit: 100 })
@@ -93,33 +97,53 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const documentTitle = `${trimmedName} – Product Specification`
+    // Create or update each document
+    const documents: Array<{ id: string; title: string; url: string }> = []
+    
+    const docTypes = [
+      { key: "urd", content: urd, title: `${trimmedName} – URD` },
+      { key: "analysisDesign", content: analysisDesign, title: `${trimmedName} – Analysis & Design` },
+      { key: "testScenario", content: testScenario, title: `${trimmedName} – Test Scenario` },
+    ]
 
-    let existingDocument: OutlineDocument | undefined
-    try {
-      const documents = await outlineRequest<OutlineDocument[]>("documents.list", {
-        collectionId: collection.id,
-        limit: 100,
-        query: trimmedName,
-      })
-      existingDocument = documents.find((doc) => doc.title.toLowerCase() === documentTitle.toLowerCase())
-    } catch {
-      // Ignore list errors and fall back to creating the document below
-    }
+    for (const docType of docTypes) {
+      if (!docType.content || !docType.content.trim()) {
+        continue // Skip empty documents
+      }
 
-    const document = existingDocument
-      ? await outlineRequest<OutlineDocument>("documents.update", {
-          id: existingDocument.id,
-          title: documentTitle,
-          text: markdown,
-          publish: true,
-        })
-      : await outlineRequest<OutlineDocument>("documents.create", {
-          title: documentTitle,
-          text: markdown,
+      // Check if document already exists
+      let existingDocument: OutlineDocument | undefined
+      try {
+        const docList = await outlineRequest<OutlineDocument[]>("documents.list", {
           collectionId: collection.id,
-          publish: true,
+          limit: 100,
         })
+        existingDocument = docList.find((doc) => doc.title.toLowerCase() === docType.title.toLowerCase())
+      } catch {
+        // Ignore list errors
+      }
+
+      // Create or update the document
+      const document = existingDocument
+        ? await outlineRequest<OutlineDocument>("documents.update", {
+            id: existingDocument.id,
+            title: docType.title,
+            text: docType.content,
+            publish: true,
+          })
+        : await outlineRequest<OutlineDocument>("documents.create", {
+            title: docType.title,
+            text: docType.content,
+            collectionId: collection.id,
+            publish: true,
+          })
+
+      documents.push({
+        id: document.id,
+        title: document.title,
+        url: document.url,
+      })
+    }
 
     return Response.json({
       collection: {
@@ -127,11 +151,8 @@ export async function POST(req: NextRequest) {
         name: collection.name,
         url: collection.url,
       },
-      document: {
-        id: document.id,
-        title: document.title,
-        url: document.url,
-      },
+      documents,
+      message: `Successfully created/updated ${documents.length} document(s) in Outline`,
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Outline integration failed"
