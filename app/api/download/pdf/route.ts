@@ -2,23 +2,16 @@ import type { NextRequest } from "next/server"
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib"
 
 import { parseMarkdownToBlocks, stripInlineMarkdown, type MarkdownBlock } from "@/lib/markdown"
-
-type SpecData = {
-  productOverview: string
-  objectives: string[]
-  keyFeatures: string[]
-  functionalRequirements: string[]
-  nonFunctionalRequirements: string[]
-  userStories: string[]
-  constraintsRisks: string[]
-  openQuestions: string[]
-  uiUxRequirements: string[]
-  layoutDiagram: string
-}
+import type { SpecData } from "@/components/spec-editor"
+import { specToMarkdown } from "@/lib/spec-markdown"
 
 export async function POST(req: NextRequest) {
   const { spec, summary } = (await req.json()) as { spec: SpecData; summary?: string }
   if (!spec) return new Response("Missing spec", { status: 400 })
+
+  // Convert spec to markdown first
+  const markdown = specToMarkdown(spec, summary)
+  const blocks = parseMarkdownToBlocks(markdown)
 
   const pdfDoc = await PDFDocument.create()
   const pageSize: [number, number] = [612, 792]
@@ -30,25 +23,13 @@ export async function POST(req: NextRequest) {
   const courier = await pdfDoc.embedFont(StandardFonts.Courier)
   const fontSize = 11
 
-  function writeTitle(text: string) {
-    ensureLine(20)
-    page.drawText(text, { x: margin, y, size: 16, font: bold, color: rgb(0.1, 0.1, 0.1) })
-    y -= 8
-  }
-
-  function writeHeading(text: string) {
-    ensureLine(18)
-    page.drawText(text, { x: margin, y, size: 13, font: bold })
-    y -= 6
-  }
-
-  function writeText(text: string) {
+  function writeText(text: string, useBold = false) {
     const sanitized = stripInlineMarkdown(text)
     if (!sanitized) return
     const lines = wrapText(sanitized, pageSize[0] - margin * 2, font, fontSize)
     lines.forEach((line) => {
       ensureLine(14)
-      page.drawText(line, { x: margin, y, size: fontSize, font })
+      page.drawText(line, { x: margin, y, size: fontSize, font: useBold ? bold : font })
     })
     y -= 6
   }
@@ -100,64 +81,29 @@ export async function POST(req: NextRequest) {
     y -= lineHeight
   }
 
-  function writeMarkdownBlocks(blocks: MarkdownBlock[]) {
-    blocks.forEach((block) => {
-      switch (block.type) {
-        case "heading": {
-          const size = block.level <= 1 ? 13 : block.level === 2 ? 12 : 11
-          ensureLine(18)
-          page.drawText(block.text, { x: margin, y, size, font: bold })
-          y -= 4
-          break
-        }
-        case "list":
-          writeList(block.items)
-          break
-        case "paragraph":
-        default:
-          writeText(block.text)
-          break
+  blocks.forEach((block) => {
+    switch (block.type) {
+      case "heading": {
+        const size = block.level <= 1 ? 16 : block.level === 2 ? 13 : 11
+        ensureLine(size + 6)
+        page.drawText(block.text, { x: margin, y, size, font: bold, color: rgb(0.1, 0.1, 0.1) })
+        y -= 6
+        break
       }
-    })
-  }
-
-  const summaryText = summary ?? ""
-  const summaryBlocks = parseMarkdownToBlocks(summaryText)
-  if (summaryText) {
-    writeTitle("Summary")
-    if (summaryBlocks.length) {
-      writeMarkdownBlocks(summaryBlocks)
-    } else {
-      writeText(summaryText)
+      case "list":
+        writeList(block.items)
+        break
+      case "code":
+        writeMonospace(block.text)
+        break
+      case "paragraph":
+      default:
+        if (block.text.trim()) {
+          writeText(block.text)
+        }
+        break
     }
-  }
-
-  writeTitle("Product Specification")
-
-  if (spec.productOverview) {
-    writeHeading("Product Overview")
-    writeText(spec.productOverview)
-  }
-
-  section("Objectives", spec.objectives)
-  section("Key Features", spec.keyFeatures)
-  section("Functional Requirements", spec.functionalRequirements)
-  section("Non-functional Requirements", spec.nonFunctionalRequirements)
-  section("User Stories", spec.userStories)
-  section("Constraints / Risks", spec.constraintsRisks)
-  section("Open Questions", spec.openQuestions)
-  section("UI/UX Requirements", spec.uiUxRequirements)
-
-  if (spec.layoutDiagram) {
-    writeHeading("Layout Diagram")
-    writeMonospace(spec.layoutDiagram)
-  }
-
-  function section(title: string, items: string[]) {
-    if (!items || items.length === 0) return
-    writeHeading(title)
-    writeList(items)
-  }
+  })
 
   const bytes = await pdfDoc.save()
   const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer

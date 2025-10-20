@@ -1,65 +1,199 @@
 "use client"
 
-import { useId } from "react"
+import { useState, useId } from "react"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Trash } from "lucide-react"
+import { DiagramViewer } from "@/components/diagram-viewer"
+
+// URD Types
+export type URDFunctionalRequirement = {
+  id: string
+  requirement: string
+  description: string
+  priority: string
+}
+
+export type URDNonFunctionalRequirement = {
+  id: string
+  aspect: string
+  requirement: string
+}
+
+export type URDUserRole = {
+  role: string
+  description: string
+  accessRights: string
+}
+
+export type URDIntegrationPoint = {
+  system: string
+  direction: string
+  data: string
+  protocol: string
+}
+
+export type URDData = {
+  projectName: string
+  date: string
+  preparedBy: string
+  reviewedBy: string
+  version: string
+  background: string
+  objective: string
+  inScope: string[]
+  outOfScope: string[]
+  functionalRequirements: URDFunctionalRequirement[]
+  nonFunctionalRequirements: URDNonFunctionalRequirement[]
+  userRoles: URDUserRole[]
+  businessFlow: string
+  integrationPoints: URDIntegrationPoint[]
+  acceptanceCriteria: string
+}
+
+// A&D Types
+export type ANDTechnologyStack = {
+  component: string
+  technology: string
+  description: string
+}
+
+export type ANDNonFunctionalDesign = {
+  aspect: string
+  specification: string
+}
+
+export type ANDData = {
+  projectName: string
+  date: string
+  version: string
+  preparedBy: string
+  objective: string
+  asIsProcess: string
+  toBeProcess: string
+  useCaseDiagram: string
+  erdDiagram: string
+  systemArchitecture: string
+  containerDiagram: string
+  technologyStack: ANDTechnologyStack[]
+  sequenceDiagram: string
+  uiUxMockup: string
+  nonFunctionalDesign: ANDNonFunctionalDesign[]
+  deploymentArchitecture: string
+}
+
+// Test Scenario Types
+export type TestReferenceDocument = {
+  name: string
+  version: string
+  date: string
+}
+
+export type TestFunctionalScenario = {
+  id: string
+  description: string
+  urdReference: string
+  expectedResult: string
+  category: string
+}
+
+export type TestNonFunctionalScenario = {
+  id: string
+  description: string
+  aspect: string
+  expectedResult: string
+}
+
+export type TestData = {
+  dataType: string
+  example: string
+  remarks: string
+}
+
+export type TestScenarioData = {
+  projectName: string
+  version: string
+  date: string
+  preparedBy: string
+  objective: string
+  referenceDocuments: TestReferenceDocument[]
+  inScope: string[]
+  outOfScope: string[]
+  functionalScenarios: TestFunctionalScenario[]
+  nonFunctionalScenarios: TestNonFunctionalScenario[]
+  testData: TestData[]
+  acceptanceCriteria: string
+}
 
 export type SpecData = {
-  productOverview: string
-  objectives: string[]
-  keyFeatures: string[]
-  functionalRequirements: string[]
-  nonFunctionalRequirements: string[]
-  userStories: string[]
-  constraintsRisks: string[]
-  openQuestions: string[]
-  uiUxRequirements: string[]
-  layoutDiagram: string
+  urd: URDData
+  analysisDesign: ANDData
+  testScenario: TestScenarioData
 }
 
 export const emptySpec: SpecData = {
-  productOverview: "",
-  objectives: [],
-  keyFeatures: [],
-  functionalRequirements: [],
-  nonFunctionalRequirements: [],
-  userStories: [],
-  constraintsRisks: [],
-  openQuestions: [],
-  uiUxRequirements: [],
-  layoutDiagram: "",
+  urd: {
+    projectName: "",
+    date: "",
+    preparedBy: "",
+    reviewedBy: "",
+    version: "",
+    background: "",
+    objective: "",
+    inScope: [],
+    outOfScope: [],
+    functionalRequirements: [],
+    nonFunctionalRequirements: [],
+    userRoles: [],
+    businessFlow: "",
+    integrationPoints: [],
+    acceptanceCriteria: "",
+  },
+  analysisDesign: {
+    projectName: "",
+    date: "",
+    version: "",
+    preparedBy: "",
+    objective: "",
+    asIsProcess: "",
+    toBeProcess: "",
+    useCaseDiagram: "",
+    erdDiagram: "",
+    systemArchitecture: "",
+    containerDiagram: "",
+    technologyStack: [],
+    sequenceDiagram: "",
+    uiUxMockup: "",
+    nonFunctionalDesign: [],
+    deploymentArchitecture: "",
+  },
+  testScenario: {
+    projectName: "",
+    version: "",
+    date: "",
+    preparedBy: "",
+    objective: "",
+    referenceDocuments: [],
+    inScope: [],
+    outOfScope: [],
+    functionalScenarios: [],
+    nonFunctionalScenarios: [],
+    testData: [],
+    acceptanceCriteria: "",
+  },
 }
 
-export function specToMarkdown(spec: SpecData, summary?: string) {
-  const lines: string[] = []
-  if (summary) {
-    lines.push("# Summary", "", summary, "")
-  }
-  lines.push("# Product Specification", "")
-  if (spec.productOverview) {
-    lines.push("## Product Overview", "", spec.productOverview, "")
-  }
-  const addList = (title: string, arr: string[]) => {
-    if (!arr?.length) return
-    lines.push(`## ${title}`, "")
-    arr.forEach((i) => lines.push(`- ${i}`))
-    lines.push("")
-  }
-  addList("Objectives", spec.objectives)
-  addList("Key Features", spec.keyFeatures)
-  addList("Functional Requirements", spec.functionalRequirements)
-  addList("Non-functional Requirements", spec.nonFunctionalRequirements)
-  addList("User Stories", spec.userStories)
-  addList("Constraints / Risks", spec.constraintsRisks)
-  addList("Open Questions", spec.openQuestions)
-  addList("UI/UX Requirements", spec.uiUxRequirements)
-  if (spec.layoutDiagram) {
-    lines.push("## Layout Diagram", "", "```", spec.layoutDiagram, "```", "")
-  }
-  return lines.join("\n")
-}
+// Re-export markdown functions from lib/spec-markdown.ts
+// These can be used on both client and server
+export {
+  urdToMarkdown,
+  analysisDesignToMarkdown,
+  testScenarioToMarkdown,
+  specToMarkdown,
+} from "@/lib/spec-markdown"
 
 function EditableList({
   label,
@@ -133,76 +267,317 @@ export default function SpecEditor({
   value: SpecData
   onChange: (v: SpecData) => void
 }) {
+  const [activeTab, setActiveTab] = useState<"urd" | "and" | "test">("urd")
+
   return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="overview">Product Overview</Label>
-        <Textarea
-          id="overview"
-          placeholder="Short overview of the product and its purpose…"
-          value={value.productOverview}
-          onChange={(e) => onChange({ ...value, productOverview: e.target.value })}
-          className="min-h-[100px]"
+    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "urd" | "and" | "test")}>
+      <TabsList className="grid w-full grid-cols-3">
+        <TabsTrigger value="urd">URD</TabsTrigger>
+        <TabsTrigger value="and">Analysis & Design</TabsTrigger>
+        <TabsTrigger value="test">Test Scenario</TabsTrigger>
+      </TabsList>
+
+      {/* URD Tab */}
+      <TabsContent value="urd" className="space-y-4 mt-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Project Name</Label>
+            <Input
+              value={value.urd.projectName}
+              onChange={(e) => onChange({ ...value, urd: { ...value.urd, projectName: e.target.value } })}
+              placeholder="Enter project name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Date</Label>
+            <Input
+              value={value.urd.date}
+              onChange={(e) => onChange({ ...value, urd: { ...value.urd, date: e.target.value } })}
+              placeholder="YYYY-MM-DD"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Prepared By</Label>
+            <Input
+              value={value.urd.preparedBy}
+              onChange={(e) => onChange({ ...value, urd: { ...value.urd, preparedBy: e.target.value } })}
+              placeholder="Name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Reviewed By</Label>
+            <Input
+              value={value.urd.reviewedBy}
+              onChange={(e) => onChange({ ...value, urd: { ...value.urd, reviewedBy: e.target.value } })}
+              placeholder="Name"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Version</Label>
+          <Input
+            value={value.urd.version}
+            onChange={(e) => onChange({ ...value, urd: { ...value.urd, version: e.target.value } })}
+            placeholder="1.0"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Background</Label>
+          <Textarea
+            value={value.urd.background}
+            onChange={(e) => onChange({ ...value, urd: { ...value.urd, background: e.target.value } })}
+            placeholder="Project background..."
+            className="min-h-[100px]"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Objective</Label>
+          <Textarea
+            value={value.urd.objective}
+            onChange={(e) => onChange({ ...value, urd: { ...value.urd, objective: e.target.value } })}
+            placeholder="Project objectives..."
+            className="min-h-[100px]"
+          />
+        </div>
+
+        <EditableList
+          label="In Scope"
+          value={value.urd.inScope}
+          onChange={(arr) => onChange({ ...value, urd: { ...value.urd, inScope: arr } })}
+          placeholder="e.g., User authentication"
         />
-      </div>
-      <EditableList
-        label="Objectives"
-        value={value.objectives}
-        onChange={(arr) => onChange({ ...value, objectives: arr })}
-        placeholder="e.g., Reduce support tickets by 20% within 3 months"
-      />
-      <EditableList
-        label="Key Features"
-        value={value.keyFeatures}
-        onChange={(arr) => onChange({ ...value, keyFeatures: arr })}
-        placeholder="e.g., Smart summarization of emails"
-      />
-      <EditableList
-        label="Functional Requirements"
-        value={value.functionalRequirements}
-        onChange={(arr) => onChange({ ...value, functionalRequirements: arr })}
-        placeholder="e.g., The system shall allow users to upload .docx files"
-      />
-      <EditableList
-        label="Non-functional Requirements"
-        value={value.nonFunctionalRequirements}
-        onChange={(arr) => onChange({ ...value, nonFunctionalRequirements: arr })}
-        placeholder="e.g., Responses in under 2 seconds"
-      />
-      <EditableList
-        label="User Stories"
-        value={value.userStories}
-        onChange={(arr) => onChange({ ...value, userStories: arr })}
-        placeholder="e.g., As a PM, I want to generate a spec from notes"
-      />
-      <EditableList
-        label="Constraints / Risks"
-        value={value.constraintsRisks}
-        onChange={(arr) => onChange({ ...value, constraintsRisks: arr })}
-        placeholder="e.g., Limited training data for niche domains"
-      />
-      <EditableList
-        label="Open Questions"
-        value={value.openQuestions}
-        onChange={(arr) => onChange({ ...value, openQuestions: arr })}
-        placeholder="e.g., Which roles will have edit access?"
-      />
-      <EditableList
-        label="UI/UX Requirements"
-        value={value.uiUxRequirements}
-        onChange={(arr) => onChange({ ...value, uiUxRequirements: arr })}
-        placeholder="e.g., Clean two-column layout with responsive design"
-      />
-      <div className="space-y-2">
-        <Label htmlFor="layoutDiagram">Layout Diagram</Label>
-        <Textarea
-          id="layoutDiagram"
-          placeholder="ASCII diagram showing UI layout and element placement..."
-          value={value.layoutDiagram}
-          onChange={(e) => onChange({ ...value, layoutDiagram: e.target.value })}
-          className="min-h-[200px] font-mono text-sm"
+
+        <EditableList
+          label="Out of Scope"
+          value={value.urd.outOfScope}
+          onChange={(arr) => onChange({ ...value, urd: { ...value.urd, outOfScope: arr } })}
+          placeholder="e.g., Payment processing"
         />
-      </div>
-    </div>
+
+        <div className="space-y-2">
+          <Label>Business Flow</Label>
+          <Textarea
+            value={value.urd.businessFlow}
+            onChange={(e) => onChange({ ...value, urd: { ...value.urd, businessFlow: e.target.value } })}
+            placeholder="Describe the business flow..."
+            className="min-h-[100px]"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Acceptance Criteria</Label>
+          <Textarea
+            value={value.urd.acceptanceCriteria}
+            onChange={(e) => onChange({ ...value, urd: { ...value.urd, acceptanceCriteria: e.target.value } })}
+            placeholder="Define acceptance criteria..."
+            className="min-h-[100px]"
+          />
+        </div>
+      </TabsContent>
+
+      {/* Analysis & Design Tab */}
+      <TabsContent value="and" className="space-y-4 mt-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Project Name</Label>
+            <Input
+              value={value.analysisDesign.projectName}
+              onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, projectName: e.target.value } })}
+              placeholder="Enter project name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Date</Label>
+            <Input
+              value={value.analysisDesign.date}
+              onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, date: e.target.value } })}
+              placeholder="YYYY-MM-DD"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Version</Label>
+            <Input
+              value={value.analysisDesign.version}
+              onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, version: e.target.value } })}
+              placeholder="1.0"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Prepared By</Label>
+            <Input
+              value={value.analysisDesign.preparedBy}
+              onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, preparedBy: e.target.value } })}
+              placeholder="Name"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Objective</Label>
+          <Textarea
+            value={value.analysisDesign.objective}
+            onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, objective: e.target.value } })}
+            placeholder="Design objectives..."
+            className="min-h-[100px]"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>AS-IS Process</Label>
+          <Textarea
+            value={value.analysisDesign.asIsProcess}
+            onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, asIsProcess: e.target.value } })}
+            placeholder="Current process description..."
+            className="min-h-[100px]"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>TO-BE Process</Label>
+          <Textarea
+            value={value.analysisDesign.toBeProcess}
+            onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, toBeProcess: e.target.value } })}
+            placeholder="Proposed process description..."
+            className="min-h-[100px]"
+          />
+        </div>
+
+        <DiagramViewer
+          label="Use Case Diagram"
+          value={value.analysisDesign.useCaseDiagram}
+          onChange={(val) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, useCaseDiagram: val } })}
+          id="useCaseDiagram"
+        />
+
+        <DiagramViewer
+          label="ERD Diagram"
+          value={value.analysisDesign.erdDiagram}
+          onChange={(val) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, erdDiagram: val } })}
+          id="erdDiagram"
+        />
+
+        <DiagramViewer
+          label="System Architecture (C4 Level 1)"
+          value={value.analysisDesign.systemArchitecture}
+          onChange={(val) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, systemArchitecture: val } })}
+          id="systemArchitecture"
+        />
+
+        <DiagramViewer
+          label="Container Diagram (C4 Level 2)"
+          value={value.analysisDesign.containerDiagram}
+          onChange={(val) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, containerDiagram: val } })}
+          id="containerDiagram"
+        />
+
+        <DiagramViewer
+          label="Sequence Diagram"
+          value={value.analysisDesign.sequenceDiagram}
+          onChange={(val) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, sequenceDiagram: val } })}
+          id="sequenceDiagram"
+        />
+
+        <div className="space-y-2">
+          <Label>UI/UX Mockup</Label>
+          <Textarea
+            value={value.analysisDesign.uiUxMockup}
+            onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, uiUxMockup: e.target.value } })}
+            placeholder="UI/UX mockup description or link..."
+            className="min-h-[100px]"
+          />
+        </div>
+
+        <DiagramViewer
+          label="Deployment Architecture"
+          value={value.analysisDesign.deploymentArchitecture}
+          onChange={(val) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, deploymentArchitecture: val } })}
+          id="deploymentArchitecture"
+        />
+      </TabsContent>
+
+      {/* Test Scenario Tab */}
+      <TabsContent value="test" className="space-y-4 mt-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Project Name</Label>
+            <Input
+              value={value.testScenario.projectName}
+              onChange={(e) => onChange({ ...value, testScenario: { ...value.testScenario, projectName: e.target.value } })}
+              placeholder="Enter project name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Version</Label>
+            <Input
+              value={value.testScenario.version}
+              onChange={(e) => onChange({ ...value, testScenario: { ...value.testScenario, version: e.target.value } })}
+              placeholder="1.0"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Date</Label>
+            <Input
+              value={value.testScenario.date}
+              onChange={(e) => onChange({ ...value, testScenario: { ...value.testScenario, date: e.target.value } })}
+              placeholder="YYYY-MM-DD"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Prepared By</Label>
+            <Input
+              value={value.testScenario.preparedBy}
+              onChange={(e) => onChange({ ...value, testScenario: { ...value.testScenario, preparedBy: e.target.value } })}
+              placeholder="Name"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Objective</Label>
+          <Textarea
+            value={value.testScenario.objective}
+            onChange={(e) => onChange({ ...value, testScenario: { ...value.testScenario, objective: e.target.value } })}
+            placeholder="Testing objectives..."
+            className="min-h-[100px]"
+          />
+        </div>
+
+        <EditableList
+          label="In Scope"
+          value={value.testScenario.inScope}
+          onChange={(arr) => onChange({ ...value, testScenario: { ...value.testScenario, inScope: arr } })}
+          placeholder="e.g., Functional testing"
+        />
+
+        <EditableList
+          label="Out of Scope"
+          value={value.testScenario.outOfScope}
+          onChange={(arr) => onChange({ ...value, testScenario: { ...value.testScenario, outOfScope: arr } })}
+          placeholder="e.g., Performance testing"
+        />
+
+        <div className="space-y-2">
+          <Label>Acceptance Criteria</Label>
+          <Textarea
+            value={value.testScenario.acceptanceCriteria}
+            onChange={(e) => onChange({ ...value, testScenario: { ...value.testScenario, acceptanceCriteria: e.target.value } })}
+            placeholder="Define test acceptance criteria..."
+            className="min-h-[100px]"
+          />
+        </div>
+      </TabsContent>
+    </Tabs>
   )
 }
