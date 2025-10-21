@@ -172,12 +172,49 @@ const specSchema = z.object({
 type SpecResult = z.infer<typeof specSchema>
 
 export async function POST(req: NextRequest) {
-  const { text, mode, step } = await req.json()
+  const { text, mode, step, prompt, fieldLabel } = await req.json()
   if (!text || !mode) {
     return new Response(JSON.stringify({ error: "Missing text or mode" }), { status: 400 })
   }
 
   try {
+    if (mode === "edit") {
+      if (!prompt) {
+        return new Response(JSON.stringify({ error: "Missing prompt for edit mode" }), { status: 400 })
+      }
+
+      const editPrompt = `
+${systemPreamble}
+
+Tugas: Edit konten berikut berdasarkan instruksi pengguna.
+- Field yang sedang diedit: ${fieldLabel || "Content"}
+- Pertahankan format markdown jika ada
+- Terapkan perubahan sesuai instruksi dengan akurat
+- Jika konten kosong, buat konten baru sesuai instruksi
+
+Konten saat ini:
+"""
+${text}
+"""
+
+Instruksi pengguna:
+"""
+${prompt}
+"""
+
+Berikan hasil editan dalam format markdown yang rapi.
+`
+
+      const { text: out } = await generateText({
+        model: MODEL,
+        prompt: editPrompt,
+      })
+
+      return new Response(JSON.stringify({ result: out?.trim() || "" }), {
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
     if (mode === "summarize") {
       const { text: out } = await generateText({
         model: MODEL,

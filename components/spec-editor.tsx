@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Trash } from "lucide-react"
 import { DiagramViewer } from "@/components/diagram-viewer"
+import { MarkdownField } from "@/components/markdown-field"
 
 // URD Types
 export type URDFunctionalRequirement = {
@@ -326,25 +327,21 @@ export default function SpecEditor({
           />
         </div>
 
-        <div className="space-y-2">
-          <Label>Background</Label>
-          <Textarea
-            value={value.urd.background}
-            onChange={(e) => onChange({ ...value, urd: { ...value.urd, background: e.target.value } })}
-            placeholder="Project background..."
-            className="min-h-[100px]"
-          />
-        </div>
+        <MarkdownField
+          label="Background"
+          value={value.urd.background}
+          onChange={(val) => onChange({ ...value, urd: { ...value.urd, background: val } })}
+          placeholder="Project background..."
+          minHeight="100px"
+        />
 
-        <div className="space-y-2">
-          <Label>Objective</Label>
-          <Textarea
-            value={value.urd.objective}
-            onChange={(e) => onChange({ ...value, urd: { ...value.urd, objective: e.target.value } })}
-            placeholder="Project objectives..."
-            className="min-h-[100px]"
-          />
-        </div>
+        <MarkdownField
+          label="Objective"
+          value={value.urd.objective}
+          onChange={(val) => onChange({ ...value, urd: { ...value.urd, objective: val } })}
+          placeholder="Project objectives..."
+          minHeight="100px"
+        />
 
         <EditableList
           label="In Scope"
@@ -360,25 +357,21 @@ export default function SpecEditor({
           placeholder="e.g., Payment processing"
         />
 
-        <div className="space-y-2">
-          <Label>Business Flow</Label>
-          <Textarea
-            value={value.urd.businessFlow}
-            onChange={(e) => onChange({ ...value, urd: { ...value.urd, businessFlow: e.target.value } })}
-            placeholder="Describe the business flow..."
-            className="min-h-[100px]"
-          />
-        </div>
+        <MarkdownField
+          label="Business Flow"
+          value={value.urd.businessFlow}
+          onChange={(val) => onChange({ ...value, urd: { ...value.urd, businessFlow: val } })}
+          placeholder="Describe the business flow..."
+          minHeight="100px"
+        />
 
-        <div className="space-y-2">
-          <Label>Acceptance Criteria</Label>
-          <Textarea
-            value={value.urd.acceptanceCriteria}
-            onChange={(e) => onChange({ ...value, urd: { ...value.urd, acceptanceCriteria: e.target.value } })}
-            placeholder="Define acceptance criteria..."
-            className="min-h-[100px]"
-          />
-        </div>
+        <MarkdownField
+          label="Acceptance Criteria"
+          value={value.urd.acceptanceCriteria}
+          onChange={(val) => onChange({ ...value, urd: { ...value.urd, acceptanceCriteria: val } })}
+          placeholder="Define acceptance criteria..."
+          minHeight="100px"
+        />
       </TabsContent>
 
       {/* Analysis & Design Tab */}
@@ -421,35 +414,29 @@ export default function SpecEditor({
           </div>
         </div>
 
-        <div className="space-y-2">
-          <Label>Objective</Label>
-          <Textarea
-            value={value.analysisDesign.objective}
-            onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, objective: e.target.value } })}
-            placeholder="Design objectives..."
-            className="min-h-[100px]"
-          />
-        </div>
+        <MarkdownField
+          label="Objective"
+          value={value.analysisDesign.objective}
+          onChange={(val) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, objective: val } })}
+          placeholder="Design objectives..."
+          minHeight="100px"
+        />
 
-        <div className="space-y-2">
-          <Label>AS-IS Process</Label>
-          <Textarea
-            value={value.analysisDesign.asIsProcess}
-            onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, asIsProcess: e.target.value } })}
-            placeholder="Current process description..."
-            className="min-h-[100px]"
-          />
-        </div>
+        <MarkdownField
+          label="AS-IS Process"
+          value={value.analysisDesign.asIsProcess}
+          onChange={(val) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, asIsProcess: val } })}
+          placeholder="Current process description..."
+          minHeight="100px"
+        />
 
-        <div className="space-y-2">
-          <Label>TO-BE Process</Label>
-          <Textarea
-            value={value.analysisDesign.toBeProcess}
-            onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, toBeProcess: e.target.value } })}
-            placeholder="Proposed process description..."
-            className="min-h-[100px]"
-          />
-        </div>
+        <MarkdownField
+          label="TO-BE Process"
+          value={value.analysisDesign.toBeProcess}
+          onChange={(val) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, toBeProcess: val } })}
+          placeholder="Proposed process description..."
+          minHeight="100px"
+        />
 
         <DiagramViewer
           label="Use Case Diagram"
@@ -486,15 +473,13 @@ export default function SpecEditor({
           id="sequenceDiagram"
         />
 
-        <div className="space-y-2">
-          <Label>UI/UX Mockup</Label>
-          <Textarea
-            value={value.analysisDesign.uiUxMockup}
-            onChange={(e) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, uiUxMockup: e.target.value } })}
-            placeholder="UI/UX mockup description or link..."
-            className="min-h-[100px]"
-          />
-        </div>
+        <MarkdownField
+          label="UI/UX Mockup"
+          value={value.analysisDesign.uiUxMockup}
+          onChange={(val) => onChange({ ...value, analysisDesign: { ...value.analysisDesign, uiUxMockup: val } })}
+          placeholder="UI/UX mockup description or link..."
+          minHeight="100px"
+        />
 
         <DiagramViewer
           label="Deployment Architecture"
@@ -544,15 +529,13 @@ export default function SpecEditor({
           </div>
         </div>
 
-        <div className="space-y-2">
-          <Label>Objective</Label>
-          <Textarea
-            value={value.testScenario.objective}
-            onChange={(e) => onChange({ ...value, testScenario: { ...value.testScenario, objective: e.target.value } })}
-            placeholder="Testing objectives..."
-            className="min-h-[100px]"
-          />
-        </div>
+        <MarkdownField
+          label="Objective"
+          value={value.testScenario.objective}
+          onChange={(val) => onChange({ ...value, testScenario: { ...value.testScenario, objective: val } })}
+          placeholder="Testing objectives..."
+          minHeight="100px"
+        />
 
         <EditableList
           label="In Scope"
@@ -568,15 +551,13 @@ export default function SpecEditor({
           placeholder="e.g., Performance testing"
         />
 
-        <div className="space-y-2">
-          <Label>Acceptance Criteria</Label>
-          <Textarea
-            value={value.testScenario.acceptanceCriteria}
-            onChange={(e) => onChange({ ...value, testScenario: { ...value.testScenario, acceptanceCriteria: e.target.value } })}
-            placeholder="Define test acceptance criteria..."
-            className="min-h-[100px]"
-          />
-        </div>
+        <MarkdownField
+          label="Acceptance Criteria"
+          value={value.testScenario.acceptanceCriteria}
+          onChange={(val) => onChange({ ...value, testScenario: { ...value.testScenario, acceptanceCriteria: val } })}
+          placeholder="Define test acceptance criteria..."
+          minHeight="100px"
+        />
       </TabsContent>
     </Tabs>
   )

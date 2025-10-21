@@ -1,25 +1,31 @@
 "use client"
 
 import { useState } from "react"
-import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Eye, FileCode2, Sparkles, X, Loader2 } from "lucide-react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { toast } from "@/components/ui/use-toast"
 
-export function DiagramViewer({
+export function MarkdownField({
   label,
   value,
   onChange,
+  placeholder,
   id,
+  minHeight = "100px",
 }: {
   label: string
   value: string
-  onChange: (value: string) => void
-  id: string
+  onChange: (v: string) => void
+  placeholder?: string
+  id?: string
+  minHeight?: string
 }) {
-  const [mode, setMode] = useState<"preview" | "edit">("preview")
+  const [view, setView] = useState<"edit" | "preview">("edit")
   const [showAiPrompt, setShowAiPrompt] = useState(false)
   const [aiPrompt, setAiPrompt] = useState("")
   const [isAiProcessing, setIsAiProcessing] = useState(false)
@@ -49,8 +55,8 @@ export function DiagramViewer({
       onChange(data.result || "")
       setAiPrompt("")
       setShowAiPrompt(false)
-      setMode("preview")
-      toast({ title: "Berhasil diperbarui", description: "Diagram telah diperbarui dengan AI." })
+      setView("preview")
+      toast({ title: "Berhasil diperbarui", description: "Konten telah diperbarui dengan AI." })
     } catch (error: unknown) {
       const description = error instanceof Error ? error.message : "Coba lagi."
       toast({ title: "AI gagal memproses", description })
@@ -77,28 +83,28 @@ export function DiagramViewer({
               Edit dengan AI
             </Button>
           )}
-          <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-card/60 p-1">
+          <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-card/60 p-0.5 shadow-sm">
             <Button
               type="button"
-              variant={mode === "preview" ? "default" : "ghost"}
+              variant={view === "edit" ? "default" : "ghost"}
               size="sm"
-              className="h-7 gap-1.5 rounded px-2 text-xs"
-              onClick={() => setMode("preview")}
-              disabled={isAiProcessing}
-            >
-              <Eye className="h-3 w-3" />
-              Preview
-            </Button>
-            <Button
-              type="button"
-              variant={mode === "edit" ? "default" : "ghost"}
-              size="sm"
-              className="h-7 gap-1.5 rounded px-2 text-xs"
-              onClick={() => setMode("edit")}
+              className="h-7 gap-1.5 rounded-md px-2 text-xs"
+              onClick={() => setView("edit")}
               disabled={isAiProcessing}
             >
               <FileCode2 className="h-3 w-3" />
               Edit
+            </Button>
+            <Button
+              type="button"
+              variant={view === "preview" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 gap-1.5 rounded-md px-2 text-xs"
+              onClick={() => setView("preview")}
+              disabled={isAiProcessing}
+            >
+              <Eye className="h-3 w-3" />
+              Preview
             </Button>
           </div>
         </div>
@@ -128,7 +134,7 @@ export function DiagramViewer({
             id={`${id}-ai-prompt`}
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
-            placeholder="Contoh: Tambahkan tabel users dengan field email dan password"
+            placeholder="Contoh: Tambahkan detail tentang skalabilitas sistem"
             disabled={isAiProcessing}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -159,23 +165,27 @@ export function DiagramViewer({
         </div>
       )}
       
-      {mode === "edit" ? (
+      {view === "edit" ? (
         <Textarea
           id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="min-h-[200px] font-mono text-xs leading-relaxed"
-          placeholder="Diagram ASCII akan ditampilkan di sini..."
+          placeholder={placeholder}
+          className="font-mono"
+          style={{ minHeight }}
         />
       ) : (
-        <div className="min-h-[200px] rounded-md border bg-muted/40 p-4 overflow-x-auto">
+        <div
+          className="rounded-md border bg-muted/40 p-4 overflow-auto"
+          style={{ minHeight }}
+        >
           {value ? (
-            <pre className="font-mono text-xs leading-relaxed whitespace-pre text-foreground">
-              {value}
-            </pre>
+            <div className="prose prose-sm max-w-none dark:prose-invert">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown>
+            </div>
           ) : (
-            <p className="text-xs text-muted-foreground">
-              Diagram belum tersedia. Klik Edit untuk menambahkan.
+            <p className="text-sm text-muted-foreground italic">
+              {placeholder || "No content to preview"}
             </p>
           )}
         </div>
