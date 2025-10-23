@@ -1,12 +1,27 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Eye, FileCode2, Sparkles, X, Loader2 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
+
+type MermaidAPI = typeof import("mermaid").default
+
+let mermaidPromise: Promise<MermaidAPI> | null = null
+
+async function getMermaid(): Promise<MermaidAPI> {
+  if (!mermaidPromise) {
+    mermaidPromise = import("mermaid").then(({ default: mermaid }) => {
+      mermaid.initialize({ startOnLoad: false, securityLevel: "loose" })
+      return mermaid
+    })
+  }
+
+  return mermaidPromise
+}
 
 export function DiagramViewer({
   label,
@@ -23,6 +38,15 @@ export function DiagramViewer({
   const [showAiPrompt, setShowAiPrompt] = useState(false)
   const [aiPrompt, setAiPrompt] = useState("")
   const [isAiProcessing, setIsAiProcessing] = useState(false)
+  const [mermaidSvg, setMermaidSvg] = useState("")
+  const [renderError, setRenderError] = useState<string | null>(null)
+  const [isRendering, setIsRendering] = useState(false)
+  const renderBaseId = useMemo(() => {
+    const sanitized = id.replace(/[^a-zA-Z0-9_-]/g, "-") || "diagram"
+    return `${sanitized}-${Math.random().toString(36).slice(2, 8)}`
+  }, [id])
+  const renderCounter = useRef(0)
+  const hasDiagram = value.trim().length > 0
 
   const handleAiEdit = async () => {
     if (!aiPrompt.trim()) {
@@ -58,6 +82,65 @@ export function DiagramViewer({
       setIsAiProcessing(false)
     }
   }
+
+  useEffect(() => {
+    if (mode !== "preview") {
+      setIsRendering(false)
+      return
+    }
+
+    const trimmed = value.trim()
+    if (!trimmed) {
+      setMermaidSvg("")
+      setRenderError(null)
+      setIsRendering(false)
+      return
+    }
+
+    let cancelled = false
+    const renderDiagram = async () => {
+      setIsRendering(true)
+      try {
+        const mermaid = await getMermaid()
+
+        try {
+          mermaid.parse(trimmed)
+        } catch (parseError: unknown) {
+          const message =
+            parseError instanceof Error ? parseError.message : "Diagram Mermaid tidak valid."
+          if (!cancelled) {
+            setRenderError(message)
+            setMermaidSvg("")
+          }
+          return
+        }
+
+        renderCounter.current += 1
+        const renderId = `${renderBaseId}-${renderCounter.current}`
+        const { svg } = await mermaid.render(renderId, trimmed)
+        if (!cancelled) {
+          setMermaidSvg(svg)
+          setRenderError(null)
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "Gagal merender diagram Mermaid."
+          setRenderError(message)
+          setMermaidSvg("")
+        }
+      } finally {
+        if (!cancelled) {
+          setIsRendering(false)
+        }
+      }
+    }
+
+    renderDiagram()
+
+    return () => {
+      cancelled = true
+    }
+  }, [mode, value, renderBaseId])
 
   return (
     <div className="space-y-2">
@@ -165,17 +248,39 @@ export function DiagramViewer({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="min-h-[200px] font-mono text-xs leading-relaxed"
-          placeholder="Diagram ASCII akan ditampilkan di sini..."
+          placeholder="Tulis definisi Mermaid di sini, mis. `flowchart LR` atau `erDiagram`."
         />
       ) : (
         <div className="min-h-[200px] rounded-md border bg-muted/40 p-4 overflow-x-auto">
-          {value ? (
-            <pre className="font-mono text-xs leading-relaxed whitespace-pre text-foreground">
-              {value}
-            </pre>
+          {hasDiagram ? (
+            <div className="space-y-3">
+              {isRendering ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Merender diagram Mermaid…
+                </div>
+              ) : mermaidSvg ? (
+                <div
+                  className="overflow-auto"
+                  dangerouslySetInnerHTML={{ __html: mermaidSvg }}
+                />
+              ) : renderError ? null : (
+                <p className="text-xs text-muted-foreground">
+                  Diagram Mermaid akan muncul setelah Anda menulis definisinya.
+                </p>
+              )}
+
+              {renderError && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                  <p className="font-medium">Tidak bisa menampilkan Mermaid</p>
+                  <p className="mt-1 break-words">{renderError}</p>
+                  <p className="mt-1">Gunakan tab Edit untuk melihat dan memperbaiki definisi aslinya.</p>
+                </div>
+              )}
+            </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Diagram belum tersedia. Klik Edit untuk menambahkan.
+              Diagram belum tersedia. Klik Edit untuk menambahkan definisi Mermaid.
             </p>
           )}
         </div>

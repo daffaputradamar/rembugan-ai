@@ -7,6 +7,61 @@ if (!OUTLINE_API_TOKEN) {
   console.warn("Outline API token is not configured. Set OUTLINE_API_TOKEN in environment variables to enable Outline integration.")
 }
 
+const MERMAID_PREFIXES = [
+  "flowchart",
+  "graph",
+  "erDiagram",
+  "sequenceDiagram",
+  "classDiagram",
+  "stateDiagram",
+  "stateDiagram-v2",
+  "journey",
+  "gantt",
+  "pie",
+  "quadrantChart",
+  "requirementDiagram",
+  "gitGraph",
+  "C4Context",
+  "C4Container",
+  "C4Component",
+  "C4Dynamic",
+  "mindmap",
+  "timeline",
+  "zenuml",
+  "sankey-beta",
+  "xychart-beta",
+  "block-beta",
+  "packet-beta",
+  "kanban",
+  "architecture-beta",
+  "radar-beta",
+]
+
+function looksLikeMermaid(content: string): boolean {
+  const lines = content.trimStart().split(/\r?\n/)
+  const firstMeaningful = lines.find((line) => {
+    const trimmed = line.trim()
+    return trimmed.length > 0 && !trimmed.startsWith("%%")
+  })
+
+  if (!firstMeaningful) {
+    return false
+  }
+
+  const normalized = firstMeaningful.trim()
+  return MERMAID_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+}
+
+function upgradeMermaidCodeFences(markdown: string): string {
+  
+  return markdown.replace(/```text\s*\r?\n([\s\S]*?)```/g, (fullMatch, inner) => {
+    if (!looksLikeMermaid(inner)) {
+      return fullMatch
+    }
+    return `\`\`\`mermaid\n${inner}\`\`\``
+  })
+}
+
 type OutlineCollection = {
   id: string
   name: string
@@ -111,6 +166,8 @@ export async function POST(req: NextRequest) {
         continue // Skip empty documents
       }
 
+      const normalizedContent = upgradeMermaidCodeFences(docType.content)
+
       // Check if document already exists
       let existingDocument: OutlineDocument | undefined
       try {
@@ -128,12 +185,12 @@ export async function POST(req: NextRequest) {
         ? await outlineRequest<OutlineDocument>("documents.update", {
             id: existingDocument.id,
             title: docType.title,
-            text: docType.content,
+            text: normalizedContent,
             publish: true,
           })
         : await outlineRequest<OutlineDocument>("documents.create", {
             title: docType.title,
-            text: docType.content,
+            text: normalizedContent,
             collectionId: collection.id,
             publish: true,
           })
