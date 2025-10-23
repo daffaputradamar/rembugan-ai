@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Eye, FileCode2, Sparkles, X, Loader2 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
+import mermaid from 'mermaid'
 
 type MermaidAPI = typeof import("mermaid").default
 
@@ -14,10 +15,10 @@ let mermaidPromise: Promise<MermaidAPI> | null = null
 
 async function getMermaid(): Promise<MermaidAPI> {
   if (!mermaidPromise) {
-    mermaidPromise = import("mermaid").then(({ default: mermaid }) => {
-      mermaid.initialize({ startOnLoad: false, securityLevel: "loose" })
-      return mermaid
-    })
+    mermaidPromise = (async () => {
+        mermaid.initialize({ startOnLoad: false, securityLevel: "loose" })
+        return mermaid;
+    })()
   }
 
   return mermaidPromise
