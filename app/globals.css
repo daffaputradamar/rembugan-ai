@@ -155,3 +155,50 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer components {
+  .markdown-preview > * + * {
+    margin-top: 1.25rem;
+  }
+
+  .markdown-preview h1,
+  .markdown-preview h2,
+  .markdown-preview h3,
+  .markdown-preview h4,
+  .markdown-preview h5,
+  .markdown-preview h6 {
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .markdown-preview table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+  }
+
+  .markdown-preview thead tr {
+    background-color: color-mix(in srgb, var(--muted) 85%, transparent);
+    color: var(--foreground);
+  }
+
+  .dark .markdown-preview thead tr {
+    background-color: color-mix(in srgb, var(--muted) 75%, transparent);
+    color: var(--foreground);
+  }
+
+  .markdown-preview th,
+  .markdown-preview td {
+    border: 1px solid var(--border);
+    padding: 0.5rem 0.75rem;
+    vertical-align: top;
+  }
+
+  .markdown-preview tbody tr:nth-child(even) {
+    background-color: color-mix(in srgb, var(--muted) 40%, transparent);
+  }
+
+  .dark .markdown-preview tbody tr:nth-child(even) {
+    background-color: color-mix(in srgb, var(--muted) 25%, transparent);
+  }
+}

@@ -25,7 +25,7 @@ export function MarkdownField({
   id?: string
   minHeight?: string
 }) {
-  const [view, setView] = useState<"edit" | "preview">("edit")
+  const [view, setView] = useState<"edit" | "preview">("preview")
   const [showAiPrompt, setShowAiPrompt] = useState(false)
   const [aiPrompt, setAiPrompt] = useState("")
   const [isAiProcessing, setIsAiProcessing] = useState(false)
@@ -180,7 +180,7 @@ export function MarkdownField({
           style={{ minHeight }}
         >
           {value ? (
-            <div className="prose prose-sm max-w-none dark:prose-invert">
+            <div className="markdown-preview prose prose-sm max-w-none dark:prose-invert">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown>
             </div>
           ) : (

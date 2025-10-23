@@ -21,15 +21,75 @@ const mermaidInstruction = readFileSync(
 const summarizePrompt = (text: string) => `
 ${systemPreamble}
 
-Task: Summarize the following meeting transcript into a concise, human-readable summary in Bahasa Indonesia.
-- Tangkap ide utama, keputusan, pemangku kepentingan, dan tantangan.
-- Usahakan tetap di bawah 200 kata jika memungkinkan.
+Tugas: Ubah transkrip rapat berikut menjadi Minutes of Meeting (MoM) terstruktur dalam format Markdown.
+
+Panduan format (ikuti urutan dan heading yang sama, gunakan emoji persis seperti di bawah):
+
+Project: <nama proyek>
+Meeting Title: <judul rapat>
+Date: <tanggal lengkap dalam Bahasa Indonesia, mis. 23 Oktober 2025>
+Time: <rentang waktu, mis. 14:00 – 15:00 WIB>
+Location: <lokasi atau platform>
+Facilitator: <nama & jabatan>
+Note Taker: <nama & jabatan>
+Tambahkan kalimat "Add meeting date here." tepat setelah metadata.
+
+📌 Meeting Objective
+<paragraf ringkas, 1-3 kalimat>
+
+🧑‍💻 Attendees
+
+| Name | Role |
+| --- | --- |
+| ... |
+
+📄 Discussion Summary
+
+| Topic | Key Points | Decision / Agreement |
+| --- | --- | --- |
+| ... |
+
+✏️ Notes
+<bullet list atau "- Tidak ada catatan tambahan." jika kosong>
+
+🤹️ Tasks
+
+| Action | PIC | Due Date |
+| --- | --- | --- |
+| ... |
+
+✏️ Open Question
+
+| No | Question | Owner |
+| --- | --- | --- |
+| ... |
+
+✏️ Risk & Issues
+
+| No | Risk | Impact | Mitigation |
+| --- | --- | --- | --- |
+| ... |
+
+✏️ Next Meeting
+
+Date: <tanggal selanjutnya>
+Agenda: <agenda>
+Expected Outcome: <hasil yang diharapkan>
+
+Aturan tambahan:
+- Gunakan Bahasa Indonesia yang formal namun ringkas.
+- Isi setiap kolom sebaik mungkin. Jika informasi tidak ada di transkrip, tulis "Tidak disebutkan".
+- Pastikan tabel selaras.
+- Jaga agar setiap kolom "Due Date" menggunakan format tanggal lokal (mis. 26 Okt 2025).
+- Jangan gunakan tag HTML apa pun (mis. <br/>, <br>, <p>). Gunakan baris kosong untuk pemisah.
+- Jika transkrip mengandung tag HTML (seperti <br/>), konversi menjadi baris baru biasa dan hilangkan tag tersebut pada hasil akhir.
+- Output wajib murni Markdown tanpa elemen HTML.
 
 Transcript:
 """
 ${text}
 """
-`;
+`
 
 const specPrompt = (text: string) => `
 ${systemPreamble}

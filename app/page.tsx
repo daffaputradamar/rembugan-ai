@@ -2,8 +2,6 @@
 
 import Image from "next/image"
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Stepper, type StepStatus } from "@/components/ui/stepper"
 import { toast } from "@/components/ui/use-toast"
+import { MarkdownField } from "@/components/markdown-field"
 import SpecEditor, { 
   type SpecData, 
   emptySpec
@@ -26,8 +25,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Copy,
-  Eye,
-  FileCode2,
   LoaderCircle,
   NotebookPen,
   RotateCcw,
@@ -47,7 +44,6 @@ export default function HomePage() {
   const [uploading, setUploading] = useState(false)
   const [downloading, setDownloading] = useState<"docx" | "pdf" | null>(null)
   const [step, setStep] = useState<Step>("input")
-  const [summaryView, setSummaryView] = useState<"preview" | "markdown">("preview")
   const [isDragging, setIsDragging] = useState(false)
   const [projectName, setProjectName] = useState("")
   const [syncingOutline, setSyncingOutline] = useState(false)
@@ -100,7 +96,6 @@ export default function HomePage() {
         if (!res.ok) throw new Error("AI request failed")
         const data = await res.json()
         setSummary(data.summary || "")
-        if (nextStep === "summary") setSummaryView("preview")
         if (nextStep) setStep(nextStep)
       } else {
         // Generate specs in 3 steps
@@ -200,7 +195,6 @@ export default function HomePage() {
     setTranscript("")
     setSummary("")
     setSpec(emptySpec)
-    setSummaryView("preview")
     setStep("input")
     setProjectName("")
   }
@@ -288,13 +282,13 @@ export default function HomePage() {
     },
     {
       key: "summary",
-      title: "Ringkasan AI",
-      description: "Kurasi highlight keputusan dan selaraskan narasi.",
+      title: "Minutes of Meeting",
+      description: "Susun MoM terstruktur dengan keputusan dan aksi lanjut.",
     },
     {
       key: "spec",
       title: "Draft Spesifikasi",
-      description: "Konversi ringkasan menjadi requirement siap bagikan.",
+      description: "Konversi Minutes of Meeting menjadi requirement siap bagikan.",
     },
   ]
   const currentStepIndex = stepItems.findIndex((s) => s.key === step)
@@ -336,7 +330,7 @@ export default function HomePage() {
       return
     }
     if (!summary.trim() && !specHasContent) {
-      toast({ title: "Tidak ada konten", description: "Buat ringkasan atau spesifikasi sebelum migrasi." })
+      toast({ title: "Tidak ada konten", description: "Buat Minutes of Meeting atau spesifikasi sebelum migrasi." })
       return
     }
 
@@ -465,20 +459,19 @@ export default function HomePage() {
               className="gap-2"
               variant="ghost"
               onClick={() => {
-                setSummaryView("preview")
                 setStep("summary")
               }}
               disabled={!summaryHasContent}
             >
               <ArrowRight className="h-4 w-4" />
-              Lihat Ringkasan
+              Lihat Minutes of Meeting
             </Button>
           </div>
           <Card className="overflow-hidden">
             <CardHeader className="space-y-2">
               <CardTitle>Unggah Rembugan</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Unggah atau tempelkan transkrip rapat, lalu biarkan RembuganAI mengolahnya menjadi ringkasan bernas.
+                Unggah atau tempelkan transkrip rapat, lalu biarkan RembuganAI mengolahnya menjadi Minutes of Meeting siap pakai.
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -574,32 +567,15 @@ export default function HomePage() {
 
           <Card>
             <CardHeader className="space-y-2">
-              <CardTitle>Ringkasan Rembugan</CardTitle>
+              <CardTitle>Minutes of Meeting</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Tinjau versi Markdown yang dirender atau sunting langsung struktur Markdown yang akan diteruskan ke tim.
+                Tinjau dan sunting minutes of meeting berbasis Markdown sebelum dibagikan ke tim.
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="inline-flex items-center gap-1 rounded-xl border border-border bg-card/60 p-1 shadow-sm">
-                  <Button
-                    variant={summaryView === "preview" ? "default" : "ghost"}
-                    size="sm"
-                    className="gap-2 rounded-lg"
-                    onClick={() => setSummaryView("preview")}
-                  >
-                    <Eye className="h-4 w-4" />
-                    Preview
-                  </Button>
-                  <Button
-                    variant={summaryView === "markdown" ? "default" : "ghost"}
-                    size="sm"
-                    className="gap-2 rounded-lg"
-                    onClick={() => setSummaryView("markdown")}
-                  >
-                    <FileCode2 className="h-4 w-4" />
-                    Markdown
-                  </Button>
+                <div className="text-sm text-muted-foreground">
+                  Sunting konten Minutes of Meeting di bawah ini.
                 </div>
                 <Button
                   variant="outline"
@@ -607,33 +583,20 @@ export default function HomePage() {
                   className="gap-2"
                   onClick={() => {
                     navigator.clipboard.writeText(summary || "")
-                    toast({ title: "Ringkasan disalin" })
+                    toast({ title: "Minutes of Meeting disalin" })
                   }}
                 >
                   <Copy className="h-4 w-4" />
                   Salin
                 </Button>
               </div>
-              {summaryView === "markdown" ? (
-                <Textarea
-                  value={summary}
-                  onChange={(e) => setSummary(e.target.value)}
-                  placeholder="Ringkasan akan muncul di sini..."
-                  className="min-h-[160px] font-mono"
-                />
-              ) : (
-                <div className="rounded-md border bg-muted/40 p-4">
-                  {summary ? (
-                    <div className="prose max-w-none text-sm leading-relaxed">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Ringkasan akan ditampilkan di sini setelah Anda menjalankan proses AI atau menulis secara manual.
-                    </p>
-                  )}
-                </div>
-              )}
+              <MarkdownField
+                label="Minutes of Meeting"
+                value={summary}
+                onChange={setSummary}
+                placeholder="Minutes of Meeting akan muncul di sini setelah proses AI selesai."
+                minHeight="200px"
+              />
               <div className="grid gap-2 sm:grid-cols-2">
                 <Button onClick={() => callAI("spec", "spec")} disabled={loading !== null || !summaryHasContent}>
                   {loading === "spec" ? (
@@ -644,7 +607,7 @@ export default function HomePage() {
                   {loading === "spec" ? "Menyusun…" : "Generate Spesifikasi"}
                 </Button>
                 <Button variant="ghost" onClick={() => callAI("summarize")} disabled={loading !== null}>
-                  {loading === "summarize" ? "Merangkum…" : "Perbarui Ringkasan"}
+                  {loading === "summarize" ? "Memperbarui…" : "Perbarui Minutes of Meeting"}
                 </Button>
               </div>
             </CardContent>
@@ -657,7 +620,7 @@ export default function HomePage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button className="gap-2" variant="ghost" onClick={() => setStep("summary")}>
               <ArrowLeft className="h-4 w-4" />
-              Kembali ke Ringkasan
+              Kembali ke Minutes of Meeting
             </Button>
             <Button
               variant="outline"
@@ -674,7 +637,7 @@ export default function HomePage() {
             <CardHeader className="space-y-2">
               <CardTitle className="text-2xl">Draft Spesifikasi Produk</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Lengkapi detail spesifikasi dengan cepat dari ringkasan rapat dan highlight keputusan penting.
+                Lengkapi detail spesifikasi dengan cepat dari Minutes of Meeting dan highlight keputusan penting.
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -684,8 +647,8 @@ export default function HomePage() {
                     1
                   </span>
                   <div>
-                    <div className="font-medium text-foreground">Tinjau ringkasan</div>
-                    <div>Pastikan ringkasan memuat konteks, keputusan, dan next step yang disepakati.</div>
+                    <div className="font-medium text-foreground">Tinjau Minutes of Meeting</div>
+                    <div>Pastikan MoM memuat konteks, keputusan, dan next step yang disepakati.</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

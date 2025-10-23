@@ -156,6 +156,7 @@ export async function POST(req: NextRequest) {
     const documents: Array<{ id: string; title: string; url: string }> = []
     
     const docTypes = [
+      { key: "summary", content: summary, title: `${trimmedName} – Minutes of Meeting` },
       { key: "urd", content: urd, title: `${trimmedName} – URD` },
       { key: "analysisDesign", content: analysisDesign, title: `${trimmedName} – Analysis & Design` },
       { key: "testScenario", content: testScenario, title: `${trimmedName} – Test Scenario` },
