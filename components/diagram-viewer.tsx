@@ -5,9 +5,23 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
-import { Eye, FileCode2, Sparkles, X, Loader2 } from "lucide-react"
+import { Eye, FileCode2, Sparkles, X, Loader2, RefreshCw } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
-import mermaid from 'mermaid'
+import mermaid from "mermaid"
+
+function extractMermaidContent(text: string) {
+  const fenced = text.match(/```mermaid\s*([\s\S]*?)```/i)
+  if (fenced) {
+    return fenced[1].trim()
+  }
+
+  const genericFence = text.match(/```\s*([\s\S]*?)```/)
+  if (genericFence) {
+    return genericFence[1].trim()
+  }
+
+  return text.trim()
+}
 
 type MermaidAPI = typeof import("mermaid").default
 
@@ -48,6 +62,7 @@ export function DiagramViewer({
   }, [id])
   const renderCounter = useRef(0)
   const hasDiagram = value.trim().length > 0
+  const shouldIncludeMermaidContext = /diagram/i.test(label)
 
   const handleAiEdit = async () => {
     if (!aiPrompt.trim()) {
@@ -65,13 +80,17 @@ export function DiagramViewer({
           mode: "edit",
           prompt: aiPrompt,
           fieldLabel: label,
+          includeMermaidContext: shouldIncludeMermaidContext,
         }),
       })
 
       if (!res.ok) throw new Error("AI request failed")
       
       const data = await res.json()
-      onChange(data.result || "")
+      const rawResult = data.result || ""
+      const nextValue = extractMermaidContent(rawResult)
+
+      onChange(nextValue)
       setAiPrompt("")
       setShowAiPrompt(false)
       setMode("preview")
@@ -79,6 +98,60 @@ export function DiagramViewer({
     } catch (error: unknown) {
       const description = error instanceof Error ? error.message : "Coba lagi."
       toast({ title: "AI gagal memproses", description })
+    } finally {
+      setIsAiProcessing(false)
+    }
+  }
+
+  const handleAiRegenerate = async () => {
+    if (!value.trim()) {
+      toast({
+        title: "Diagram kosong",
+        description: "Tambahkan definisi diagram terlebih dahulu sebelum memperbaikinya dengan AI.",
+      })
+      return
+    }
+
+    if (!renderError) {
+      toast({
+        title: "Tidak ada error",
+        description: "Diagram saat ini tidak memiliki error untuk diperbaiki.",
+      })
+      return
+    }
+
+    setIsAiProcessing(true)
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: value || "",
+          mode: "edit",
+          prompt: `Perbaiki diagram Mermaid agar valid. Gunakan pesan error berikut sebagai konteks: ${renderError}. Balas hanya dengan definisi Mermaid yang lengkap dan valid tanpa penjelasan tambahan.`,
+          fieldLabel: label,
+          includeMermaidContext: shouldIncludeMermaidContext,
+        }),
+      })
+
+      if (!res.ok) throw new Error("AI request failed")
+
+      const data = await res.json()
+      const result = extractMermaidContent(data.result || "")
+
+      if (!result) {
+        throw new Error("AI tidak mengembalikan hasil perbaikan.")
+      }
+
+      onChange(result)
+      setMode("preview")
+      toast({
+        title: "Diagram diperbaiki",
+        description: "AI mencoba memperbaiki diagram berdasarkan pesan error.",
+      })
+    } catch (error: unknown) {
+      const description = error instanceof Error ? error.message : "Coba lagi."
+      toast({ title: "Gagal memperbaiki dengan AI", description })
     } finally {
       setIsAiProcessing(false)
     }
@@ -104,26 +177,24 @@ export function DiagramViewer({
       try {
         const mermaid = await getMermaid()
 
-        try {
-          mermaid.parse(trimmed)
-        } catch (parseError: unknown) {
-          const message =
-            parseError instanceof Error ? parseError.message : "Diagram Mermaid tidak valid."
-          if (!cancelled) {
-            setRenderError(message)
-            setMermaidSvg("")
-          }
+        const isMermaidValid = await mermaid.parse(trimmed)
+
+        if(!isMermaidValid) {
+          setRenderError("Diagram Mermaid tidak valid.")
+          setMermaidSvg("")
           return
         }
 
         renderCounter.current += 1
         const renderId = `${renderBaseId}-${renderCounter.current}`
         const { svg } = await mermaid.render(renderId, trimmed)
+        
         if (!cancelled) {
           setMermaidSvg(svg)
           setRenderError(null)
         }
       } catch (error: unknown) {
+
         if (!cancelled) {
           const message = error instanceof Error ? error.message : "Gagal merender diagram Mermaid."
           setRenderError(message)
@@ -276,6 +347,23 @@ export function DiagramViewer({
                   <p className="font-medium">Tidak bisa menampilkan Mermaid</p>
                   <p className="mt-1 break-words">{renderError}</p>
                   <p className="mt-1">Gunakan tab Edit untuk melihat dan memperbaiki definisi aslinya.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAiRegenerate}
+                      disabled={isAiProcessing}
+                      className="gap-1.5"
+                    >
+                      {isAiProcessing ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3" />
+                      )}
+                      Perbaiki dengan AI
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>

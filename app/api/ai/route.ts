@@ -288,7 +288,8 @@ const specSchema = z.object({
 type SpecResult = z.infer<typeof specSchema>;
 
 export async function POST(req: NextRequest) {
-  const { text, mode, step, prompt, fieldLabel } = await req.json();
+  const { text, mode, step, prompt, fieldLabel, includeMermaidContext } =
+    await req.json();
   if (!text || !mode) {
     return new Response(JSON.stringify({ error: "Missing text or mode" }), {
       status: 400,
@@ -305,7 +306,7 @@ export async function POST(req: NextRequest) {
       }
 
       const mermaidContext =
-        fieldLabel && /diagram/i.test(fieldLabel)
+        includeMermaidContext || (fieldLabel && /diagram/i.test(fieldLabel))
           ? `
 Ikuti panduan Mermaid berikut:
 ${mermaidInstruction}`
