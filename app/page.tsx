@@ -1,10 +1,6 @@
 "use client"
 
-import Image from "next/image"
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react"
-
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
+import { useEffect, useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -13,130 +9,45 @@ import { Label } from "@/components/ui/label"
 import { Stepper, type StepStatus } from "@/components/ui/stepper"
 import { toast } from "@/components/ui/use-toast"
 import { MarkdownField } from "@/components/markdown-field"
-import SpecEditor, { 
-  type SpecData, 
-  emptySpec
-} from "@/components/spec-editor"
-import {
-  urdToMarkdown,
-  analysisDesignToMarkdown,
-  testScenarioToMarkdown,
-  specToMarkdown
-} from "@/lib/spec-markdown"
-import {
-  ArrowLeft,
-  ArrowRight,
-  Copy,
-  LoaderCircle,
-  NotebookPen,
-  RotateCcw,
-  Save,
-  Sparkles,
-  UploadCloud,
-} from "lucide-react"
+import SpecEditor, { type SpecData, emptySpec } from "@/components/spec-editor"
+import { urdToMarkdown, analysisDesignToMarkdown, testScenarioToMarkdown, specToMarkdown } from "@/lib/spec-markdown"
+import { ArrowLeft, ArrowRight, Copy, LoaderCircle, NotebookPen, RotateCcw, Sparkles, UploadCloud } from "lucide-react"
+import Image from "next/image"
+import { PageHeader } from "@/components/page-header"
+import { FileUploadZone } from "@/components/file-upload-zone"
+import { LoadingOverlay } from "@/components/loading-overlay"
+import { MomReviewPanel } from "@/components/mom-review-panel"
+import { useMomWorkflow } from "@/hooks/use-mom-workflow"
+import type { AiMode, Step } from "@/types/mom"
 
-type AiMode = "summarize" | "spec"
-type Step = "input" | "summary" | "spec"
 const STORAGE_KEY = "rembuganai-session"
-
-type ClarificationFieldPath =
-  | "projectName"
-  | "meetingTitle"
-  | "meetingObjective"
-  | "meetingDate"
-  | "meetingTime"
-  | "meetingLocation"
-  | "attendees"
-  | "topics"
-  | "actionItems"
-  | "risks"
-  | "openIssues"
-  | "nextMeeting"
-  | "nextMeeting.date"
-  | "nextMeeting.agenda"
-  | "nextMeeting.expectedOutcome"
-
-type MomAttendee = { name: string; role: string }
-type MomTopic = { topic: string; keyPoints: string; decision: string }
-type MomActionItem = { action: string; pic: string; dueDate: string }
-type MomRisk = { risk: string; impact: string; mitigation: string }
-type MomOpenIssue = { question: string; owner: string }
-type MomNextMeeting = { date: string; agenda: string; expectedOutcome: string }
-
-type MomReview = {
-  projectName: string
-  meetingTitle: string
-  meetingObjective: string
-  meetingDate: string
-  meetingTime: string
-  meetingLocation: string
-  attendees: MomAttendee[]
-  topics: MomTopic[]
-  actionItems: MomActionItem[]
-  risks: MomRisk[]
-  openIssues: MomOpenIssue[]
-  nextMeeting: MomNextMeeting
-}
-
-type MomClarification = {
-  id: string
-  fieldPath: ClarificationFieldPath
-  prompt: string
-  currentValue?: string
-  answerType: "text" | "list" | "date"
-  formatHint?: string
-  suggestions?: string[]
-  severity: "high" | "medium" | "low"
-}
-
-type ClarificationAnswer = {
-  id: string
-  fieldPath: ClarificationFieldPath
-  prompt: string
-  answer?: string
-}
-
-type SummaryPhase = "idle" | "review" | "finalized"
 
 export default function HomePage() {
   const [transcript, setTranscript] = useState("")
-  const [summary, setSummary] = useState("")
   const [spec, setSpec] = useState<SpecData>(emptySpec)
   const [loading, setLoading] = useState<AiMode | null>(null)
   const [uploading, setUploading] = useState(false)
   const [downloading, setDownloading] = useState<"docx" | "pdf" | null>(null)
   const [step, setStep] = useState<Step>("input")
-  const [isDragging, setIsDragging] = useState(false)
   const [projectName, setProjectName] = useState("")
   const [syncingOutline, setSyncingOutline] = useState(false)
   const [generatingStep, setGeneratingStep] = useState<"urd" | "analysisDesign" | "testScenario" | null>(null)
-  const [momReview, setMomReview] = useState<MomReview | null>(null)
-  const [clarifications, setClarifications] = useState<MomClarification[]>([])
-  const [clarificationAnswers, setClarificationAnswers] = useState<ClarificationAnswer[]>([])
-  const [summaryPhase, setSummaryPhase] = useState<SummaryPhase>("idle")
-  const [clarificationInput, setClarificationInput] = useState("")
-  const [clarificationPrefill, setClarificationPrefill] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Persist session locally (optional bonus)
+  const momWorkflow = useMomWorkflow({ transcript, step, setStep })
+
+  // Persist session locally
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) {
         const parsed = JSON.parse(saved)
         setTranscript(parsed.transcript || "")
-        setSummary(parsed.summary || "")
         setSpec(parsed.spec || emptySpec)
         setProjectName(parsed.projectName || "")
-        setMomReview(parsed.momReview || null)
-        setClarifications(parsed.clarifications || [])
-        setClarificationAnswers(parsed.clarificationAnswers || [])
-        if (parsed.summaryPhase) {
-          setSummaryPhase(parsed.summaryPhase as SummaryPhase)
-        } else if ((parsed.summary || "").trim().length > 0) {
-          setSummaryPhase("finalized")
-        }
       }
-    } catch { }
+    } catch {}
   }, [])
 
   useEffect(() => {
@@ -145,127 +56,27 @@ export default function HomePage() {
         STORAGE_KEY,
         JSON.stringify({
           transcript,
-          summary,
           spec,
           projectName,
-          momReview,
-          clarifications,
-          clarificationAnswers,
-          summaryPhase,
-        }),
+        })
       )
-    } catch { }
-  }, [transcript, summary, spec, projectName, momReview, clarifications, clarificationAnswers, summaryPhase])
+    } catch {}
+  }, [transcript, spec, projectName])
 
   // Helper function to clean escaped newlines in diagrams
   const cleanDiagrams = (data: any) => {
-    if (data.useCaseDiagram) data.useCaseDiagram = data.useCaseDiagram.replace(/\\n/g, '\n')
-    if (data.erdDiagram) data.erdDiagram = data.erdDiagram.replace(/\\n/g, '\n')
-    if (data.systemArchitecture) data.systemArchitecture = data.systemArchitecture.replace(/\\n/g, '\n')
-    if (data.containerDiagram) data.containerDiagram = data.containerDiagram.replace(/\\n/g, '\n')
-    if (data.sequenceDiagram) data.sequenceDiagram = data.sequenceDiagram.replace(/\\n/g, '\n')
-    if (data.deploymentArchitecture) data.deploymentArchitecture = data.deploymentArchitecture.replace(/\\n/g, '\n')
+    if (data.useCaseDiagram) data.useCaseDiagram = data.useCaseDiagram.replace(/\\n/g, "\n")
+    if (data.erdDiagram) data.erdDiagram = data.erdDiagram.replace(/\\n/g, "\n")
+    if (data.systemArchitecture) data.systemArchitecture = data.systemArchitecture.replace(/\\n/g, "\n")
+    if (data.containerDiagram) data.containerDiagram = data.containerDiagram.replace(/\\n/g, "\n")
+    if (data.sequenceDiagram) data.sequenceDiagram = data.sequenceDiagram.replace(/\\n/g, "\n")
+    if (data.deploymentArchitecture) data.deploymentArchitecture = data.deploymentArchitecture.replace(/\\n/g, "\n")
     return data
-  }
-
-  async function startMomWorkflow(nextStep?: Step) {
-    if (!transcript.trim()) {
-      toast({ title: "Transkrip belum diisi", description: "Unggah atau tempelkan teks rapat terlebih dahulu." })
-      return
-    }
-
-    setLoading("summarize")
-    try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: transcript, mode: "summarize", stage: "analyze" }),
-      })
-      if (!res.ok) throw new Error("AI request failed")
-      const data = await res.json()
-
-      setMomReview(data.review as MomReview)
-      setClarifications(Array.isArray(data.clarifications) ? (data.clarifications as MomClarification[]) : [])
-      setClarificationAnswers([])
-      setClarificationPrefill(null)
-      setSummaryPhase("review")
-      setClarificationInput("")
-
-      if (nextStep) {
-        setStep(nextStep)
-      } else if (step !== "summary") {
-        setStep("summary")
-      }
-
-      if (Array.isArray(data.clarifications) && data.clarifications.length > 0) {
-        toast({
-          title: "Perlu konfirmasi",
-          description: `${data.clarifications.length} pertanyaan klarifikasi siap dijawab.`,
-        })
-      } else {
-        toast({
-          title: "Review siap",
-          description: "Tidak ada klarifikasi tambahan. Klik \"Buat Minutes of Meeting\" untuk menyelesaikan.",
-        })
-      }
-    } catch (error: unknown) {
-      const description = error instanceof Error ? error.message : "Please try again."
-      toast({ title: "Gagal menganalisis rapat", description })
-    } finally {
-      setLoading(null)
-    }
-  }
-
-  async function finalizeMomWorkflow(nextStep?: Step) {
-    if (!momReview) {
-      toast({ title: "Belum ada data review", description: "Jalankan analisis Minutes of Meeting terlebih dahulu." })
-      return
-    }
-
-    if (!transcript.trim()) {
-      toast({ title: "Transkrip belum diisi", description: "Unggah atau tempelkan teks rapat terlebih dahulu." })
-      return
-    }
-
-    setLoading("summarize")
-    try {
-      const res = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: transcript,
-          mode: "summarize",
-          stage: "finalize",
-          review: momReview,
-          clarificationAnswers,
-        }),
-      })
-      if (!res.ok) throw new Error("AI request failed")
-      const data = await res.json()
-
-      setSummary(data.summary || "")
-      setMomReview((data.review as MomReview) || momReview)
-      setClarificationAnswers((data.clarifications as ClarificationAnswer[]) || clarificationAnswers)
-      setClarifications([])
-      setSummaryPhase("finalized")
-
-      toast({
-        title: "MoM siap",
-        description: "Minutes of Meeting sudah diperbarui berdasarkan klarifikasi Anda.",
-      })
-
-      if (nextStep) setStep(nextStep)
-    } catch (error: unknown) {
-      const description = error instanceof Error ? error.message : "Please try again."
-      toast({ title: "Gagal menyusun MoM", description })
-    } finally {
-      setLoading(null)
-    }
   }
 
   async function callAI(mode: AiMode, nextStep?: Step) {
     if (mode === "summarize") {
-      await startMomWorkflow(nextStep)
+      await momWorkflow.startMomWorkflow(nextStep)
       return
     }
 
@@ -340,52 +151,7 @@ export default function HomePage() {
     }
   }
 
-  async function download(type: "docx" | "pdf") {
-    if (downloading) return
-    setDownloading(type)
-    try {
-      const res = await fetch(`/api/download/${type}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spec, summary }),
-      })
-      if (!res.ok) {
-        toast({ title: "Download failed", description: `Could not generate ${type.toUpperCase()}.` })
-        return
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `rembuganai-spec.${type}`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-    } catch (error: unknown) {
-      const description = error instanceof Error ? error.message : "Please try again."
-      toast({ title: "Download failed", description })
-    } finally {
-      setDownloading(null)
-    }
-  }
-
-  const resetWorkflow = () => {
-    setTranscript("")
-    setSummary("")
-    setSpec(emptySpec)
-    setStep("input")
-    setProjectName("")
-    setMomReview(null)
-    setClarifications([])
-    setClarificationAnswers([])
-    setSummaryPhase("idle")
-    setClarificationInput("")
-    setClarificationPrefill(null)
-  }
-
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const processFiles = async (files: FileList | File[]) => {
+  async function processFiles(files: FileList | File[]) {
     if (uploading) {
       toast({ title: "Sedang memproses", description: "Tunggu hingga unggahan saat ini selesai." })
       return
@@ -411,57 +177,81 @@ export default function HomePage() {
       }
     } finally {
       setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ""
     }
   }
 
-  const handleFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    await processFiles(event.target.files ?? [])
-  }
-
-  const handleBrowseClick = () => {
-    if (uploading) return
-    fileInputRef.current?.click()
-  }
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (uploading) return
+  const handleBrowseClick = () => fileInputRef.current?.click()
+  
+  const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault()
-      fileInputRef.current?.click()
+      handleBrowseClick()
     }
   }
 
-  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+  const handleDragOver = (event: React.DragEvent) => {
     event.preventDefault()
-    if (uploading) return
-    event.dataTransfer.dropEffect = "copy"
     setIsDragging(true)
   }
 
-  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = (event: React.DragEvent) => {
     event.preventDefault()
-    if (uploading) return
-    const related = event.relatedTarget as Node | null
-    if (related && event.currentTarget.contains(related)) return
     setIsDragging(false)
   }
 
-  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
+  const handleDrop = (event: React.DragEvent) => {
     event.preventDefault()
-    event.stopPropagation()
-    if (uploading) return
     setIsDragging(false)
-    const files = event.dataTransfer.files
-    if (!files?.length) return
-    await processFiles(files)
-    event.dataTransfer.clearData()
+    if (event.dataTransfer.files) {
+      processFiles(event.dataTransfer.files)
+    }
+  }
+
+  const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      processFiles(event.target.files)
+    }
+  }
+
+  async function download(type: "docx" | "pdf") {
+    if (downloading) return
+    setDownloading(type)
+    try {
+      const res = await fetch(`/api/download/${type}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spec, summary: momWorkflow.summary }),
+      })
+      if (!res.ok) {
+        toast({ title: "Download failed", description: `Could not generate ${type.toUpperCase()}.` })
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `rembuganai-spec.${type}`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (error: unknown) {
+      const description = error instanceof Error ? error.message : "Please try again."
+      toast({ title: "Download failed", description })
+    } finally {
+      setDownloading(null)
+    }
+  }
+
+  const resetWorkflow = () => {
+    setTranscript("")
+    setSpec(emptySpec)
+    setStep("input")
+    setProjectName("")
+    momWorkflow.resetMomWorkflow()
   }
 
   const hasValues = (arr: string[]) => arr.some((item) => item.trim().length > 0)
-  const summaryReady = summaryPhase === "finalized" && summary.trim().length > 0
-  const summaryInReview = summaryPhase === "review" && momReview !== null
-  const summaryStepAvailable = summaryReady || summaryInReview
   const stepItems: { key: Step; title: string; description: string }[] = [
     {
       key: "input",
@@ -497,7 +287,7 @@ export default function HomePage() {
     let onSelect: (() => void) | undefined
     if (idx <= currentStepIndex) {
       onSelect = () => setStep(item.key)
-    } else if (item.key === "summary" && summaryStepAvailable) {
+    } else if (item.key === "summary" && momWorkflow.summaryStepAvailable) {
       onSelect = () => setStep("summary")
     } else if (item.key === "spec" && specHasContent) {
       onSelect = () => setStep("spec")
@@ -509,120 +299,6 @@ export default function HomePage() {
     }
   })
 
-  const clarificationOrder = useMemo(() => {
-    const map = new Map<string, number>()
-    clarifications.forEach((clar, index) => map.set(clar.id, index))
-    return map
-  }, [clarifications])
-
-  const clarificationAnswerMap = useMemo(() => {
-    const map = new Map<string, ClarificationAnswer>()
-    clarificationAnswers.forEach((item) => {
-      map.set(item.id, item)
-    })
-    return map
-  }, [clarificationAnswers])
-
-  const answeredClarificationIds = useMemo(
-    () => new Set(clarificationAnswers.map((item) => item.id)),
-    [clarificationAnswers],
-  )
-
-  const pendingClarifications = useMemo(
-    () => clarifications.filter((item) => !answeredClarificationIds.has(item.id)),
-    [clarifications, answeredClarificationIds],
-  )
-
-  const answeredClarifications = useMemo(
-    () => clarifications.filter((item) => answeredClarificationIds.has(item.id)),
-    [clarifications, answeredClarificationIds],
-  )
-
-  const activeClarification = pendingClarifications[0] ?? null
-  const allClarificationsAnswered = clarifications.length === 0 || pendingClarifications.length === 0
-
-  useEffect(() => {
-    if (!activeClarification) {
-      setClarificationInput("")
-      setClarificationPrefill(null)
-      return
-    }
-
-    if (clarificationPrefill !== null) {
-      setClarificationInput(clarificationPrefill)
-      setClarificationPrefill(null)
-      return
-    }
-
-    const existing = clarificationAnswerMap.get(activeClarification.id)
-    if (existing?.answer) {
-      setClarificationInput(existing.answer)
-      return
-    }
-
-    setClarificationInput(activeClarification.currentValue ?? "")
-  }, [activeClarification, clarificationAnswerMap, clarificationPrefill])
-
-  const handleClarificationSubmit = (customAnswer?: string) => {
-    if (!activeClarification) return
-
-    const trimmed = customAnswer?.trim()
-    const normalized = trimmed && trimmed.length > 0 ? trimmed : undefined
-
-    setClarificationAnswers((prev) => {
-      const filtered = prev.filter((item) => item.id !== activeClarification.id)
-      const nextEntry: ClarificationAnswer = {
-        id: activeClarification.id,
-        fieldPath: activeClarification.fieldPath,
-        prompt: activeClarification.prompt,
-        answer: normalized,
-      }
-      const next = [...filtered, nextEntry]
-      next.sort((a, b) => {
-        const orderA = clarificationOrder.get(a.id) ?? 0
-        const orderB = clarificationOrder.get(b.id) ?? 0
-        return orderA - orderB
-      })
-      return next
-    })
-    setClarificationInput("")
-  }
-
-  const handleClarificationSkip = () => {
-    handleClarificationSubmit()
-  }
-
-  const handleClarificationEdit = (clar: MomClarification) => {
-    const previous = clarificationAnswerMap.get(clar.id)
-    setClarificationAnswers((prev) => prev.filter((item) => item.id !== clar.id))
-    setClarificationPrefill(previous?.answer ?? clar.currentValue ?? "")
-  }
-
-  const formatValue = (value: string) => (value?.trim().length ? value : "Tidak disebutkan")
-
-  const metadataEntries = momReview
-    ? [
-        { label: "Project", value: formatValue(momReview.projectName) },
-        { label: "Meeting Title", value: formatValue(momReview.meetingTitle) },
-        { label: "Tujuan", value: formatValue(momReview.meetingObjective) },
-        { label: "Tanggal", value: formatValue(momReview.meetingDate) },
-        { label: "Waktu", value: formatValue(momReview.meetingTime) },
-        { label: "Lokasi", value: formatValue(momReview.meetingLocation) },
-      ]
-    : []
-
-  const severityLabel: Record<MomClarification["severity"], string> = {
-    high: "Prioritas tinggi",
-    medium: "Prioritas sedang",
-    low: "Prioritas rendah",
-  }
-
-  const severityVariant = (level: MomClarification["severity"]) => {
-    if (level === "high") return "destructive" as const
-    if (level === "medium") return "secondary" as const
-    return "outline" as const
-  }
-
   const migrateToOutline = async () => {
     if (syncingOutline || loading !== null || downloading || uploading) return
     const name = projectName.trim()
@@ -630,13 +306,13 @@ export default function HomePage() {
       toast({ title: "Nama proyek diperlukan", description: "Masukkan nama proyek untuk membuat koleksi di Outline." })
       return
     }
-    if (!summary.trim() && !specHasContent) {
+    if (!momWorkflow.summary.trim() && !specHasContent) {
       toast({ title: "Tidak ada konten", description: "Buat Minutes of Meeting atau spesifikasi sebelum migrasi." })
       return
     }
 
     // Generate separate markdown for each document
-    const urd = urdToMarkdown(spec.urd, summary)
+    const urd = urdToMarkdown(spec.urd, momWorkflow.summary)
     const analysisDesign = analysisDesignToMarkdown(spec.analysisDesign)
     const testScenario = testScenarioToMarkdown(spec.testScenario)
 
@@ -655,7 +331,7 @@ export default function HomePage() {
           urd, 
           analysisDesign, 
           testScenario, 
-          summary 
+          summary: momWorkflow.summary 
         }),
       })
 
@@ -693,39 +369,13 @@ export default function HomePage() {
 
   return (
     <main className="relative mx-auto max-w-6xl p-4 sm:p-6 md:p-10">
-      {(loading !== null || uploading || downloading !== null || syncingOutline) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-primary/20 bg-card px-6 py-5 text-center shadow-lg shadow-primary/10">
-            <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-foreground">
-                {uploading
-                  ? "Memuat transkrip…"
-                  : downloading === "docx"
-                    ? "Menyiapkan dokumen DOCX"
-                    : downloading === "pdf"
-                      ? "Menyiapkan dokumen PDF"
-                      : syncingOutline
-                        ? "Mengirim dokumen ke Outline"
-                        : loading === "summarize"
-                          ? "AI sedang merangkum"
-                          : generatingStep === "urd"
-                            ? "Membuat User Requirement Document (1/3)"
-                            : generatingStep === "analysisDesign"
-                              ? "Membuat Analysis & Design Document (2/3)"
-                              : generatingStep === "testScenario"
-                                ? "Membuat Test Scenario Document (3/3)"
-                                : "AI sedang menyusun spesifikasi"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {generatingStep 
-                  ? "Dokumen yang selesai akan langsung ditampilkan."
-                  : "Mohon tunggu, RembuganAI sedang bekerja."}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      <LoadingOverlay
+        loading={loading || momWorkflow.loading}
+        uploading={uploading}
+        downloading={downloading}
+        syncingOutline={syncingOutline}
+        generatingStep={generatingStep}
+      />
       <header className="mb-12 grid gap-6 lg:grid-cols-[auto,1fr] lg:items-center">
         <div className="flex justify-center lg:justify-start">
           <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-primary/40 bg-primary/5 shadow-lg shadow-primary/10">
@@ -762,7 +412,7 @@ export default function HomePage() {
               onClick={() => {
                 setStep("summary")
               }}
-              disabled={!summaryStepAvailable}
+              disabled={!momWorkflow.summaryStepAvailable}
             >
               <ArrowRight className="h-4 w-4" />
               Lihat Minutes of Meeting
@@ -874,250 +524,27 @@ export default function HomePage() {
               </p>
             </CardHeader>
             <CardContent className="space-y-5">
-              {summaryPhase === "review" && momReview ? (
-                <div className="space-y-5">
-                  <Alert>
-                    <AlertTitle>Konfirmasi data rapat</AlertTitle>
-                    <AlertDescription>
-                      Baca hasil ekstraksi AI, lalu jawab pertanyaan klarifikasi satu per satu agar Minutes of Meeting akurat.
-                    </AlertDescription>
-                  </Alert>
-                  {summaryReady ? (
-                    <Alert>
-                      <AlertTitle>MoM sebelumnya masih tersimpan</AlertTitle>
-                      <AlertDescription>
-                        Hasil Minutes of Meeting lama tidak akan diganti sampai Anda menekan "Buat Minutes of Meeting" setelah klarifikasi selesai.
-                      </AlertDescription>
-                    </Alert>
-                  ) : null}
-                  <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Data yang ditemukan AI</h3>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {metadataEntries.map((item) => (
-                        <div key={item.label} className="rounded-md bg-background px-3 py-2 shadow-sm">
-                          <p className="text-xs uppercase tracking-wide text-muted-foreground">{item.label}</p>
-                          <p className="text-sm font-medium text-foreground">{item.value}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-foreground">Peserta</h4>
-                        {momReview.attendees.length ? (
-                          <ul className="grid gap-1 text-sm text-muted-foreground">
-                            {momReview.attendees.map((person, idx) => (
-                              <li key={`${person.name}-${idx}`}>
-                                <span className="font-medium text-foreground">{person.name}</span>
-                                {person.role ? <span> - {person.role}</span> : null}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">Tidak disebutkan.</p>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-foreground">Pertemuan selanjutnya</h4>
-                        <div className="rounded-md bg-background px-3 py-2 text-sm text-muted-foreground">
-                          <p><span className="font-medium text-foreground">Tanggal:</span> {formatValue(momReview.nextMeeting.date)}</p>
-                          <p><span className="font-medium text-foreground">Agenda:</span> {formatValue(momReview.nextMeeting.agenda)}</p>
-                          <p><span className="font-medium text-foreground">Outcome:</span> {formatValue(momReview.nextMeeting.expectedOutcome)}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-foreground">Topik diskusi</h4>
-                        {momReview.topics.length ? (
-                          <div className="grid gap-2 text-sm text-muted-foreground">
-                            {momReview.topics.map((topic, idx) => (
-                              <div key={`${topic.topic}-${idx}`} className="rounded-md border border-border/60 bg-background/60 px-3 py-2">
-                                <p className="font-semibold text-foreground">{topic.topic}</p>
-                                <p><span className="font-medium text-foreground">Poin:</span> {formatValue(topic.keyPoints)}</p>
-                                <p><span className="font-medium text-foreground">Keputusan:</span> {formatValue(topic.decision)}</p>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">Tidak disebutkan.</p>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-foreground">Action items</h4>
-                        {momReview.actionItems.length ? (
-                          <div className="grid gap-2 text-sm text-muted-foreground">
-                            {momReview.actionItems.map((item, idx) => (
-                              <div key={`${item.action}-${idx}`} className="rounded-md border border-border/60 bg-background/60 px-3 py-2">
-                                <p className="font-semibold text-foreground">{item.action}</p>
-                                <p><span className="font-medium text-foreground">PIC:</span> {formatValue(item.pic)}</p>
-                                <p><span className="font-medium text-foreground">Due:</span> {formatValue(item.dueDate)}</p>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">Tidak disebutkan.</p>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-foreground">Risiko & isu</h4>
-                        {momReview.risks.length ? (
-                          <div className="grid gap-2 text-sm text-muted-foreground">
-                            {momReview.risks.map((risk, idx) => (
-                              <div key={`${risk.risk}-${idx}`} className="rounded-md border border-border/60 bg-background/60 px-3 py-2">
-                                <p className="font-semibold text-foreground">{risk.risk}</p>
-                                <p><span className="font-medium text-foreground">Dampak:</span> {formatValue(risk.impact)}</p>
-                                <p><span className="font-medium text-foreground">Mitigasi:</span> {formatValue(risk.mitigation)}</p>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">Tidak disebutkan.</p>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-foreground">Pertanyaan terbuka</h4>
-                        {momReview.openIssues.length ? (
-                          <div className="grid gap-2 text-sm text-muted-foreground">
-                            {momReview.openIssues.map((issue, idx) => (
-                              <div key={`${issue.question}-${idx}`} className="rounded-md border border-border/60 bg-background/60 px-3 py-2">
-                                <p className="font-semibold text-foreground">{issue.question}</p>
-                                <p><span className="font-medium text-foreground">Owner:</span> {formatValue(issue.owner)}</p>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">Tidak disebutkan.</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  {activeClarification ? (
-                    <div className="space-y-4 rounded-lg border border-primary/40 bg-primary/10 p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                            Klarifikasi {clarificationAnswers.length + 1} dari {clarifications.length}
-                          </p>
-                          <h3 className="text-base font-semibold text-primary">Perlu konfirmasi</h3>
-                        </div>
-                        <Badge variant={severityVariant(activeClarification.severity)}>
-                          {severityLabel[activeClarification.severity]}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-foreground">{activeClarification.prompt}</p>
-                      {activeClarification.currentValue ? (
-                        <div className="rounded-md border border-primary/40 bg-background px-3 py-2 text-sm whitespace-pre-wrap">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nilai saat ini</p>
-                          <p className="mt-1 text-foreground">{activeClarification.currentValue}</p>
-                        </div>
-                      ) : null}
-                      {activeClarification.formatHint ? (
-                        <p className="text-xs text-muted-foreground">Format yang disarankan: {activeClarification.formatHint}</p>
-                      ) : null}
-                      {activeClarification.suggestions?.length ? (
-                        <div className="flex flex-wrap gap-2">
-                          {activeClarification.suggestions.map((suggestion) => (
-                            <Button
-                              key={suggestion}
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setClarificationInput(suggestion)}
-                            >
-                              Gunakan "{suggestion}"
-                            </Button>
-                          ))}
-                        </div>
-                      ) : null}
-                      <Textarea
-                        value={clarificationInput}
-                        onChange={(event) => setClarificationInput(event.target.value)}
-                        placeholder="Tulis jawaban Anda..."
-                        rows={activeClarification.answerType === "text" ? 3 : 5}
-                      />
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          onClick={() => handleClarificationSubmit(clarificationInput)}
-                          disabled={loading !== null}
-                          className="gap-2"
-                        >
-                          {loading === "summarize" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                          Simpan jawaban
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={handleClarificationSkip}
-                          disabled={loading !== null}
-                        >
-                          Gunakan data awal
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-5 text-sm text-primary">
-                      Semua pertanyaan klarifikasi sudah dijawab. Klik "Buat Minutes of Meeting" untuk menyusun MoM akhir.
-                    </div>
-                  )}
-                  {answeredClarifications.length > 0 ? (
-                    <div className="space-y-3 rounded-lg border bg-muted/40 p-4">
-                      <h3 className="text-sm font-semibold text-foreground">Jawaban Anda</h3>
-                      <div className="grid gap-3">
-                        {answeredClarifications.map((clar) => {
-                          const answer = clarificationAnswerMap.get(clar.id)?.answer
-                          return (
-                            <div key={clar.id} className="space-y-2 rounded-md border bg-background px-3 py-3 text-sm">
-                              <div className="flex flex-wrap items-start justify-between gap-2">
-                                <div className="max-w-3xl">
-                                  <p className="font-medium text-foreground">{clar.prompt}</p>
-                                  <p className="text-xs text-muted-foreground">Field: {clar.fieldPath}</p>
-                                </div>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleClarificationEdit(clar)}
-                                >
-                                  Ubah jawaban
-                                </Button>
-                              </div>
-                              <div className="whitespace-pre-wrap text-foreground">
-                                {answer ? answer : <span className="italic text-muted-foreground">Tetap gunakan nilai awal.</span>}
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Button
-                      type="button"
-                      onClick={() => finalizeMomWorkflow()}
-                      disabled={loading !== null || !allClarificationsAnswered || !momReview}
-                      className="gap-2"
-                    >
-                      {loading === "summarize" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                      Buat Minutes of Meeting
-                    </Button>
-                    <span className="text-sm text-muted-foreground">
-                      {allClarificationsAnswered
-                        ? "Siap menyusun MoM akhir."
-                        : `Selesaikan ${pendingClarifications.length} pertanyaan lagi.`}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => startMomWorkflow("summary")}
-                      disabled={loading !== null}
-                    >
-                      Muat ulang klarifikasi
-                    </Button>
-                  </div>
-                </div>
-              ) : summaryPhase === "finalized" ? (
+              {momWorkflow.summaryPhase === "review" && momWorkflow.momReview ? (
+                <MomReviewPanel
+                  momReview={momWorkflow.momReview}
+                  summaryReady={momWorkflow.summaryReady}
+                  clarifications={momWorkflow.clarifications}
+                  clarificationAnswers={momWorkflow.clarificationAnswers}
+                  activeClarification={momWorkflow.activeClarification}
+                  answeredClarifications={momWorkflow.answeredClarifications}
+                  allClarificationsAnswered={momWorkflow.allClarificationsAnswered}
+                  pendingClarifications={momWorkflow.pendingClarifications}
+                  clarificationInput={momWorkflow.clarificationInput}
+                  loading={loading || momWorkflow.loading}
+                  clarificationAnswerMap={momWorkflow.clarificationAnswerMap}
+                  onClarificationInputChange={momWorkflow.setClarificationInput}
+                  onClarificationSubmit={momWorkflow.handleClarificationSubmit}
+                  onClarificationSkip={momWorkflow.handleClarificationSkip}
+                  onClarificationEdit={momWorkflow.handleClarificationEdit}
+                  onFinalizeMom={() => momWorkflow.finalizeMomWorkflow()}
+                  onReloadClarifications={() => momWorkflow.startMomWorkflow("summary")}
+                />
+              ) : momWorkflow.summaryPhase === "finalized" ? (
                 <div className="space-y-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="text-sm text-muted-foreground">
@@ -1128,7 +555,7 @@ export default function HomePage() {
                       size="sm"
                       className="gap-2"
                       onClick={() => {
-                        navigator.clipboard.writeText(summary || "")
+                        navigator.clipboard.writeText(momWorkflow.summary || "")
                         toast({ title: "Minutes of Meeting disalin" })
                       }}
                     >
@@ -1138,13 +565,13 @@ export default function HomePage() {
                   </div>
                   <MarkdownField
                     label="Minutes of Meeting"
-                    value={summary}
-                    onChange={setSummary}
+                    value={momWorkflow.summary}
+                    onChange={momWorkflow.setSummary}
                     placeholder="Minutes of Meeting akan muncul di sini setelah proses AI selesai."
                     minHeight="200px"
                   />
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <Button onClick={() => callAI("spec", "spec")} disabled={loading !== null || !summaryReady}>
+                    <Button onClick={() => callAI("spec", "spec")} disabled={loading !== null || !momWorkflow.summaryReady}>
                       {loading === "spec" ? (
                         <LoaderCircle className="h-4 w-4 animate-spin" />
                       ) : (
@@ -1152,7 +579,7 @@ export default function HomePage() {
                       )}
                       {loading === "spec" ? "Menyusun…" : "Generate Spesifikasi"}
                     </Button>
-                    <Button variant="ghost" onClick={() => startMomWorkflow()} disabled={loading !== null}>
+                    <Button variant="ghost" onClick={() => momWorkflow.startMomWorkflow()} disabled={loading !== null}>
                       {loading === "summarize" ? "Menyiapkan review…" : "Perbarui Minutes of Meeting"}
                     </Button>
                   </div>
@@ -1253,7 +680,7 @@ export default function HomePage() {
                         loading !== null ||
                         !!downloading ||
                         uploading ||
-                        (!specHasContent && !summary.trim()) ||
+                        (!specHasContent && !momWorkflow.summary.trim()) ||
                         !projectName.trim()
                       }
                     >
@@ -1271,7 +698,7 @@ export default function HomePage() {
                 <Button
                   variant="outline"
                   onClick={() => {
-                    const md = specToMarkdown(spec, summary)
+                    const md = specToMarkdown(spec, momWorkflow.summary)
                     navigator.clipboard.writeText(md)
                     toast({ title: "Disalin dalam format Markdown" })
                   }}
