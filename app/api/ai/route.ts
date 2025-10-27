@@ -18,7 +18,145 @@ const mermaidInstruction = readFileSync(
   join(process.cwd(), "docs", "Mermaid.md"),
   "utf8"
 ).trim();
-const summarizePrompt = (text: string) => `
+const momReviewSchema = z.object({
+  projectName: z.string().describe("Nama proyek atau inisiatif"),
+  meetingTitle: z.string().describe("Judul rapat"),
+  meetingObjective: z.string().describe("Tujuan rapat"),
+  meetingDate: z.string().describe("Tanggal rapat"),
+  meetingTime: z.string().describe("Waktu rapat"),
+  meetingLocation: z.string().describe("Lokasi atau platform rapat"),
+  attendees: z
+    .array(
+      z.object({
+        name: z.string().describe("Nama peserta"),
+        role: z.string().describe("Peran peserta"),
+      })
+    )
+    .describe("Daftar peserta dan peran"),
+  topics: z
+    .array(
+      z.object({
+        topic: z.string().describe("Topik utama"),
+        keyPoints: z.string().describe("Ringkasan pembahasan"),
+        decision: z
+          .string()
+          .describe("Keputusan atau hasil (gunakan 'Tidak ada keputusan' jika tidak ada)"),
+      })
+    )
+    .describe("Daftar topik utama, ringkasan, dan keputusan"),
+  actionItems: z
+    .array(
+      z.object({
+        action: z.string().describe("Item aksi"),
+        pic: z.string().describe("Penanggung jawab"),
+        dueDate: z
+          .string()
+          .describe("Tenggat (gunakan 'Tidak disebutkan' bila tidak ada)")
+          .default("Tidak disebutkan"),
+      })
+    )
+    .describe("Daftar action item beserta PIC dan tenggat"),
+  risks: z
+    .array(
+      z.object({
+        risk: z.string().describe("Risiko atau isu"),
+        impact: z
+          .string()
+          .describe("Dampak jika risiko terjadi (boleh 'Tidak disebutkan')"),
+        mitigation: z
+          .string()
+          .describe("Mitigasi atau rencana tindak lanjut"),
+      })
+    )
+    .describe("Daftar risiko dan mitigasinya"),
+  openIssues: z
+    .array(
+      z.object({
+        question: z.string().describe("Pertanyaan atau isu terbuka"),
+        owner: z.string().describe("Penanggung jawab lanjutan"),
+      })
+    )
+    .describe("Isu atau pertanyaan terbuka"),
+  nextMeeting: z
+    .object({
+      date: z.string().describe("Tanggal pertemuan selanjutnya"),
+      agenda: z.string().describe("Agenda pertemuan selanjutnya"),
+      expectedOutcome: z.string().describe("Harapan hasil pertemuan selanjutnya"),
+    })
+    .describe("Rencana pertemuan berikutnya"),
+});
+
+type MomReviewData = z.infer<typeof momReviewSchema>;
+
+const momClarificationSchema = z.object({
+  id: z.string().describe("ID unik untuk klarifikasi"),
+  fieldPath: z
+    .enum([
+      "projectName",
+      "meetingTitle",
+      "meetingObjective",
+      "meetingDate",
+      "meetingTime",
+      "meetingLocation",
+      "attendees",
+      "topics",
+      "actionItems",
+      "risks",
+      "openIssues",
+      "nextMeeting",
+      "nextMeeting.date",
+      "nextMeeting.agenda",
+      "nextMeeting.expectedOutcome",
+    ])
+    .describe("Lokasi field yang perlu diklarifikasi"),
+  prompt: z
+    .string()
+    .describe(
+      "Pertanyaan natural yang akan ditampilkan ke pengguna untuk melengkapi informasi"
+    ),
+  currentValue: z
+    .string()
+    .describe("Nilai saat ini yang dianggap kurang akurat atau tidak lengkap")
+    .optional(),
+  answerType: z
+    .enum(["text", "list", "date"])
+    .default("text")
+    .describe("Jenis jawaban yang diharapkan"),
+  formatHint: z
+    .string()
+    .describe(
+      "Petunjuk singkat mengenai format jawaban yang diharapkan (mis. 'Nama - Peran')"
+    )
+    .optional(),
+  suggestions: z
+    .array(z.string())
+    .describe("Contoh jawaban atau opsi yang dapat dipilih pengguna")
+    .optional(),
+  severity: z
+    .enum(["high", "medium", "low"])
+    .default("medium")
+    .describe("Tingkat pentingnya klarifikasi"),
+});
+
+const momAnalysisSchema = z.object({
+  review: momReviewSchema,
+  clarifications: z.array(momClarificationSchema),
+});
+
+const clarificationAnswerSchema = z.object({
+  id: z.string(),
+  fieldPath: momClarificationSchema.shape.fieldPath,
+  prompt: z.string(),
+  answer: z.string().optional(),
+});
+
+type ClarificationAnswer = z.infer<typeof clarificationAnswerSchema>;
+
+const summarizePrompt = (
+  text: string,
+  review?: MomReviewData,
+  clarifications?: ClarificationAnswer[]
+) => `
 ${systemPreamble}
 
 Tugas: Ubah transkrip rapat berikut menjadi Minutes of Meeting (MoM) terstruktur dalam format Markdown.
@@ -77,6 +215,7 @@ Agenda: <agenda>
 Expected Outcome: <hasil yang diharapkan>
 
 Aturan tambahan:
+- Jika informasi terverifikasi tersedia, jadikan itu rujukan utama. Jangan mengubah nilai yang sudah dikonfirmasi pengguna kecuali bertentangan jelas dengan transkrip.
 - Gunakan Bahasa Indonesia yang formal namun ringkas.
 - Isi setiap kolom sebaik mungkin. Jika informasi tidak ada di transkrip, tulis "Tidak disebutkan".
 - Pastikan tabel selaras.
@@ -85,11 +224,93 @@ Aturan tambahan:
 - Jika transkrip mengandung tag HTML (seperti <br/>), konversi menjadi baris baru biasa dan hilangkan tag tersebut pada hasil akhir.
 - Output wajib murni Markdown tanpa elemen HTML.
 
+${review ? `
+Informasi terverifikasi berikut berasal dari konfirmasi pengguna. Gunakan sebagai acuan utama. Jika ada hal yang tidak ditemukan dalam transkrip, biarkan sebagaimana adanya.
+
+Data terverifikasi (JSON):
+${JSON.stringify(review, null, 2)}
+` : ""}
+
+${clarifications && clarifications.length
+  ? `Klarifikasi tambahan dari pengguna:
+${clarifications
+  .map(
+    (item, idx) =>
+      `${idx + 1}. Field: ${item.fieldPath}
+   Pertanyaan: ${item.prompt}
+   Jawaban pengguna: ${item.answer?.trim() || "(Pengguna memilih tetap menggunakan data awal)"}`
+  )
+  .join("\n")}
+
+Gunakan jawaban tersebut untuk memperbarui data sebelum membuat MoM. Jika jawaban kosong, pertahankan nilai pada data terverifikasi.`
+  : ""}
+
 Transcript:
 """
 ${text}
 """
 `
+
+const momReviewPrompt = (text: string) => `
+${systemPreamble}
+
+Tugas: Baca seluruh transkrip rapat berikut dan susun data terstruktur untuk dikonfirmasi ke pengguna sebelum membuat Minutes of Meeting.
+
+Format keluaran JSON:
+{
+  "review": {
+    "projectName": string,
+    "meetingTitle": string,
+    "meetingObjective": string,
+    "meetingDate": string,
+    "meetingTime": string,
+    "meetingLocation": string,
+    "attendees": [
+      { "name": string, "role": string }
+    ],
+    "topics": [
+      { "topic": string, "keyPoints": string, "decision": string }
+    ],
+    "actionItems": [
+      { "action": string, "pic": string, "dueDate": string }
+    ],
+    "risks": [
+      { "risk": string, "impact": string, "mitigation": string }
+    ],
+    "openIssues": [
+      { "question": string, "owner": string }
+    ],
+    "nextMeeting": { "date": string, "agenda": string, "expectedOutcome": string }
+  },
+  "clarifications": [
+    {
+      "id": string,
+      "fieldPath": one of "projectName", "meetingTitle", "meetingObjective", "meetingDate", "meetingTime", "meetingLocation", "attendees", "topics", "actionItems", "risks", "openIssues", "nextMeeting", "nextMeeting.date", "nextMeeting.agenda", "nextMeeting.expectedOutcome",
+      "prompt": string,
+      "currentValue": string,
+      "answerType": "text" | "list" | "date",
+      "formatHint": string,
+      "suggestions": string[],
+      "severity": "high" | "medium" | "low"
+    }
+  ]
+}
+
+Panduan:
+- Baca seluruh transkrip, identifikasi informasi relevan sesuai struktur di atas.
+- Isi semua field pada "review"; gunakan "Tidak disebutkan" bila benar-benar tidak ditemukan.
+- Bangun daftar "clarifications" hanya untuk bagian yang masih meragukan, tidak lengkap, atau bertentangan. Hindari menanyakan ulang informasi yang sudah jelas.
+- Batasi klarifikasi maksimal 5 pertanyaan, urutkan dari prioritas tertinggi.
+- Tulis "prompt" dalam gaya percakapan santun dan hangat.
+- "currentValue" harus merefleksikan nilai yang dianggap tidak akurat agar pengguna tahu konteksnya.
+- Gunakan "answerType" dan "formatHint" untuk memandu format jawaban (contoh: "Tulis setiap peserta dengan format: Nama - Peran").
+- Jika tidak ada bagian yang membutuhkan klarifikasi, kembalikan array "clarifications" kosong.
+
+Transcript:
+"""
+${text}
+"""
+`;
 
 const specPrompt = (text: string) => `
 ${systemPreamble}
@@ -288,8 +509,17 @@ const specSchema = z.object({
 type SpecResult = z.infer<typeof specSchema>;
 
 export async function POST(req: NextRequest) {
-  const { text, mode, step, prompt, fieldLabel, includeMermaidContext } =
-    await req.json();
+  const {
+    text,
+    mode,
+    step,
+    prompt,
+    fieldLabel,
+    includeMermaidContext,
+    stage,
+    review,
+    clarificationAnswers,
+  } = await req.json();
   if (!text || !mode) {
     return new Response(JSON.stringify({ error: "Missing text or mode" }), {
       status: 400,
@@ -346,6 +576,54 @@ Berikan hasil editan dalam format markdown yang rapi.
     }
 
     if (mode === "summarize") {
+      if (stage === "analyze") {
+        const result = await generateObject({
+          model: MODEL,
+          schema: momAnalysisSchema,
+          prompt: momReviewPrompt(text),
+        });
+
+        return new Response(
+          JSON.stringify({
+            stage: "clarify",
+            review: result.object.review,
+            clarifications: result.object.clarifications,
+          }),
+          {
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      if (stage === "finalize") {
+        if (!review) {
+          return new Response(
+            JSON.stringify({ error: "Missing review data for finalize stage" }),
+            { status: 400 }
+          );
+        }
+
+        const verifiedReview = momReviewSchema.parse(review);
+        const parsedClarifications = clarificationAnswers
+          ? clarificationAnswerSchema.array().parse(clarificationAnswers)
+          : [];
+
+        const { text: out } = await generateText({
+          model: MODEL,
+          prompt: summarizePrompt(text, verifiedReview, parsedClarifications),
+        });
+        return new Response(
+          JSON.stringify({
+            summary: out?.trim() || "",
+            review: verifiedReview,
+            clarifications: parsedClarifications,
+          }),
+          {
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
       const { text: out } = await generateText({
         model: MODEL,
         prompt: summarizePrompt(text),

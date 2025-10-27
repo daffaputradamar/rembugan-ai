@@ -1,8 +1,10 @@
 "use client"
 
 import Image from "next/image"
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react"
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -28,6 +30,7 @@ import {
   LoaderCircle,
   NotebookPen,
   RotateCcw,
+  Save,
   Sparkles,
   UploadCloud,
 } from "lucide-react"
@@ -35,6 +38,65 @@ import {
 type AiMode = "summarize" | "spec"
 type Step = "input" | "summary" | "spec"
 const STORAGE_KEY = "rembuganai-session"
+
+type ClarificationFieldPath =
+  | "projectName"
+  | "meetingTitle"
+  | "meetingObjective"
+  | "meetingDate"
+  | "meetingTime"
+  | "meetingLocation"
+  | "attendees"
+  | "topics"
+  | "actionItems"
+  | "risks"
+  | "openIssues"
+  | "nextMeeting"
+  | "nextMeeting.date"
+  | "nextMeeting.agenda"
+  | "nextMeeting.expectedOutcome"
+
+type MomAttendee = { name: string; role: string }
+type MomTopic = { topic: string; keyPoints: string; decision: string }
+type MomActionItem = { action: string; pic: string; dueDate: string }
+type MomRisk = { risk: string; impact: string; mitigation: string }
+type MomOpenIssue = { question: string; owner: string }
+type MomNextMeeting = { date: string; agenda: string; expectedOutcome: string }
+
+type MomReview = {
+  projectName: string
+  meetingTitle: string
+  meetingObjective: string
+  meetingDate: string
+  meetingTime: string
+  meetingLocation: string
+  attendees: MomAttendee[]
+  topics: MomTopic[]
+  actionItems: MomActionItem[]
+  risks: MomRisk[]
+  openIssues: MomOpenIssue[]
+  nextMeeting: MomNextMeeting
+}
+
+type MomClarification = {
+  id: string
+  fieldPath: ClarificationFieldPath
+  prompt: string
+  currentValue?: string
+  answerType: "text" | "list" | "date"
+  formatHint?: string
+  suggestions?: string[]
+  severity: "high" | "medium" | "low"
+}
+
+type ClarificationAnswer = {
+  id: string
+  fieldPath: ClarificationFieldPath
+  prompt: string
+  answer?: string
+}
+
+type SummaryPhase = "idle" | "review" | "finalized"
 
 export default function HomePage() {
   const [transcript, setTranscript] = useState("")
@@ -48,6 +110,12 @@ export default function HomePage() {
   const [projectName, setProjectName] = useState("")
   const [syncingOutline, setSyncingOutline] = useState(false)
   const [generatingStep, setGeneratingStep] = useState<"urd" | "analysisDesign" | "testScenario" | null>(null)
+  const [momReview, setMomReview] = useState<MomReview | null>(null)
+  const [clarifications, setClarifications] = useState<MomClarification[]>([])
+  const [clarificationAnswers, setClarificationAnswers] = useState<ClarificationAnswer[]>([])
+  const [summaryPhase, setSummaryPhase] = useState<SummaryPhase>("idle")
+  const [clarificationInput, setClarificationInput] = useState("")
+  const [clarificationPrefill, setClarificationPrefill] = useState<string | null>(null)
 
   // Persist session locally (optional bonus)
   useEffect(() => {
@@ -59,15 +127,35 @@ export default function HomePage() {
         setSummary(parsed.summary || "")
         setSpec(parsed.spec || emptySpec)
         setProjectName(parsed.projectName || "")
+        setMomReview(parsed.momReview || null)
+        setClarifications(parsed.clarifications || [])
+        setClarificationAnswers(parsed.clarificationAnswers || [])
+        if (parsed.summaryPhase) {
+          setSummaryPhase(parsed.summaryPhase as SummaryPhase)
+        } else if ((parsed.summary || "").trim().length > 0) {
+          setSummaryPhase("finalized")
+        }
       }
     } catch { }
   }, [])
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ transcript, summary, spec, projectName }))
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          transcript,
+          summary,
+          spec,
+          projectName,
+          momReview,
+          clarifications,
+          clarificationAnswers,
+          summaryPhase,
+        }),
+      )
     } catch { }
-  }, [transcript, summary, spec, projectName])
+  }, [transcript, summary, spec, projectName, momReview, clarifications, clarificationAnswers, summaryPhase])
 
   // Helper function to clean escaped newlines in diagrams
   const cleanDiagrams = (data: any) => {
@@ -80,24 +168,115 @@ export default function HomePage() {
     return data
   }
 
-  async function callAI(mode: AiMode, nextStep?: Step) {
+  async function startMomWorkflow(nextStep?: Step) {
     if (!transcript.trim()) {
       toast({ title: "Transkrip belum diisi", description: "Unggah atau tempelkan teks rapat terlebih dahulu." })
       return
     }
+
+    setLoading("summarize")
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: transcript, mode: "summarize", stage: "analyze" }),
+      })
+      if (!res.ok) throw new Error("AI request failed")
+      const data = await res.json()
+
+      setMomReview(data.review as MomReview)
+      setClarifications(Array.isArray(data.clarifications) ? (data.clarifications as MomClarification[]) : [])
+      setClarificationAnswers([])
+      setClarificationPrefill(null)
+      setSummaryPhase("review")
+      setClarificationInput("")
+
+      if (nextStep) {
+        setStep(nextStep)
+      } else if (step !== "summary") {
+        setStep("summary")
+      }
+
+      if (Array.isArray(data.clarifications) && data.clarifications.length > 0) {
+        toast({
+          title: "Perlu konfirmasi",
+          description: `${data.clarifications.length} pertanyaan klarifikasi siap dijawab.`,
+        })
+      } else {
+        toast({
+          title: "Review siap",
+          description: "Tidak ada klarifikasi tambahan. Klik \"Buat Minutes of Meeting\" untuk menyelesaikan.",
+        })
+      }
+    } catch (error: unknown) {
+      const description = error instanceof Error ? error.message : "Please try again."
+      toast({ title: "Gagal menganalisis rapat", description })
+    } finally {
+      setLoading(null)
+    }
+  }
+
+  async function finalizeMomWorkflow(nextStep?: Step) {
+    if (!momReview) {
+      toast({ title: "Belum ada data review", description: "Jalankan analisis Minutes of Meeting terlebih dahulu." })
+      return
+    }
+
+    if (!transcript.trim()) {
+      toast({ title: "Transkrip belum diisi", description: "Unggah atau tempelkan teks rapat terlebih dahulu." })
+      return
+    }
+
+    setLoading("summarize")
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: transcript,
+          mode: "summarize",
+          stage: "finalize",
+          review: momReview,
+          clarificationAnswers,
+        }),
+      })
+      if (!res.ok) throw new Error("AI request failed")
+      const data = await res.json()
+
+      setSummary(data.summary || "")
+      setMomReview((data.review as MomReview) || momReview)
+      setClarificationAnswers((data.clarifications as ClarificationAnswer[]) || clarificationAnswers)
+      setClarifications([])
+      setSummaryPhase("finalized")
+
+      toast({
+        title: "MoM siap",
+        description: "Minutes of Meeting sudah diperbarui berdasarkan klarifikasi Anda.",
+      })
+
+      if (nextStep) setStep(nextStep)
+    } catch (error: unknown) {
+      const description = error instanceof Error ? error.message : "Please try again."
+      toast({ title: "Gagal menyusun MoM", description })
+    } finally {
+      setLoading(null)
+    }
+  }
+
+  async function callAI(mode: AiMode, nextStep?: Step) {
+    if (mode === "summarize") {
+      await startMomWorkflow(nextStep)
+      return
+    }
+
+    if (!transcript.trim()) {
+      toast({ title: "Transkrip belum diisi", description: "Unggah atau tempelkan teks rapat terlebih dahulu." })
+      return
+    }
+
     setLoading(mode)
     try {
-      if (mode === "summarize") {
-        const res = await fetch("/api/ai", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: transcript, mode }),
-        })
-        if (!res.ok) throw new Error("AI request failed")
-        const data = await res.json()
-        setSummary(data.summary || "")
-        if (nextStep) setStep(nextStep)
-      } else {
+      if (mode === "spec") {
         // Generate specs in 3 steps
         const steps: Array<"urd" | "analysisDesign" | "testScenario"> = ["urd", "analysisDesign", "testScenario"]
         
@@ -197,6 +376,12 @@ export default function HomePage() {
     setSpec(emptySpec)
     setStep("input")
     setProjectName("")
+    setMomReview(null)
+    setClarifications([])
+    setClarificationAnswers([])
+    setSummaryPhase("idle")
+    setClarificationInput("")
+    setClarificationPrefill(null)
   }
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -274,6 +459,9 @@ export default function HomePage() {
   }
 
   const hasValues = (arr: string[]) => arr.some((item) => item.trim().length > 0)
+  const summaryReady = summaryPhase === "finalized" && summary.trim().length > 0
+  const summaryInReview = summaryPhase === "review" && momReview !== null
+  const summaryStepAvailable = summaryReady || summaryInReview
   const stepItems: { key: Step; title: string; description: string }[] = [
     {
       key: "input",
@@ -292,7 +480,6 @@ export default function HomePage() {
     },
   ]
   const currentStepIndex = stepItems.findIndex((s) => s.key === step)
-  const summaryHasContent = summary.trim().length > 0
   const specHasContent =
     spec.urd.projectName.trim().length > 0 ||
     spec.urd.background.trim().length > 0 ||
@@ -310,7 +497,7 @@ export default function HomePage() {
     let onSelect: (() => void) | undefined
     if (idx <= currentStepIndex) {
       onSelect = () => setStep(item.key)
-    } else if (item.key === "summary" && summaryHasContent) {
+    } else if (item.key === "summary" && summaryStepAvailable) {
       onSelect = () => setStep("summary")
     } else if (item.key === "spec" && specHasContent) {
       onSelect = () => setStep("spec")
@@ -321,6 +508,120 @@ export default function HomePage() {
       onSelect,
     }
   })
+
+  const clarificationOrder = useMemo(() => {
+    const map = new Map<string, number>()
+    clarifications.forEach((clar, index) => map.set(clar.id, index))
+    return map
+  }, [clarifications])
+
+  const clarificationAnswerMap = useMemo(() => {
+    const map = new Map<string, ClarificationAnswer>()
+    clarificationAnswers.forEach((item) => {
+      map.set(item.id, item)
+    })
+    return map
+  }, [clarificationAnswers])
+
+  const answeredClarificationIds = useMemo(
+    () => new Set(clarificationAnswers.map((item) => item.id)),
+    [clarificationAnswers],
+  )
+
+  const pendingClarifications = useMemo(
+    () => clarifications.filter((item) => !answeredClarificationIds.has(item.id)),
+    [clarifications, answeredClarificationIds],
+  )
+
+  const answeredClarifications = useMemo(
+    () => clarifications.filter((item) => answeredClarificationIds.has(item.id)),
+    [clarifications, answeredClarificationIds],
+  )
+
+  const activeClarification = pendingClarifications[0] ?? null
+  const allClarificationsAnswered = clarifications.length === 0 || pendingClarifications.length === 0
+
+  useEffect(() => {
+    if (!activeClarification) {
+      setClarificationInput("")
+      setClarificationPrefill(null)
+      return
+    }
+
+    if (clarificationPrefill !== null) {
+      setClarificationInput(clarificationPrefill)
+      setClarificationPrefill(null)
+      return
+    }
+
+    const existing = clarificationAnswerMap.get(activeClarification.id)
+    if (existing?.answer) {
+      setClarificationInput(existing.answer)
+      return
+    }
+
+    setClarificationInput(activeClarification.currentValue ?? "")
+  }, [activeClarification, clarificationAnswerMap, clarificationPrefill])
+
+  const handleClarificationSubmit = (customAnswer?: string) => {
+    if (!activeClarification) return
+
+    const trimmed = customAnswer?.trim()
+    const normalized = trimmed && trimmed.length > 0 ? trimmed : undefined
+
+    setClarificationAnswers((prev) => {
+      const filtered = prev.filter((item) => item.id !== activeClarification.id)
+      const nextEntry: ClarificationAnswer = {
+        id: activeClarification.id,
+        fieldPath: activeClarification.fieldPath,
+        prompt: activeClarification.prompt,
+        answer: normalized,
+      }
+      const next = [...filtered, nextEntry]
+      next.sort((a, b) => {
+        const orderA = clarificationOrder.get(a.id) ?? 0
+        const orderB = clarificationOrder.get(b.id) ?? 0
+        return orderA - orderB
+      })
+      return next
+    })
+    setClarificationInput("")
+  }
+
+  const handleClarificationSkip = () => {
+    handleClarificationSubmit()
+  }
+
+  const handleClarificationEdit = (clar: MomClarification) => {
+    const previous = clarificationAnswerMap.get(clar.id)
+    setClarificationAnswers((prev) => prev.filter((item) => item.id !== clar.id))
+    setClarificationPrefill(previous?.answer ?? clar.currentValue ?? "")
+  }
+
+  const formatValue = (value: string) => (value?.trim().length ? value : "Tidak disebutkan")
+
+  const metadataEntries = momReview
+    ? [
+        { label: "Project", value: formatValue(momReview.projectName) },
+        { label: "Meeting Title", value: formatValue(momReview.meetingTitle) },
+        { label: "Tujuan", value: formatValue(momReview.meetingObjective) },
+        { label: "Tanggal", value: formatValue(momReview.meetingDate) },
+        { label: "Waktu", value: formatValue(momReview.meetingTime) },
+        { label: "Lokasi", value: formatValue(momReview.meetingLocation) },
+      ]
+    : []
+
+  const severityLabel: Record<MomClarification["severity"], string> = {
+    high: "Prioritas tinggi",
+    medium: "Prioritas sedang",
+    low: "Prioritas rendah",
+  }
+
+  const severityVariant = (level: MomClarification["severity"]) => {
+    if (level === "high") return "destructive" as const
+    if (level === "medium") return "secondary" as const
+    return "outline" as const
+  }
 
   const migrateToOutline = async () => {
     if (syncingOutline || loading !== null || downloading || uploading) return
@@ -461,7 +762,7 @@ export default function HomePage() {
               onClick={() => {
                 setStep("summary")
               }}
-              disabled={!summaryHasContent}
+              disabled={!summaryStepAvailable}
             >
               <ArrowRight className="h-4 w-4" />
               Lihat Minutes of Meeting
@@ -572,44 +873,298 @@ export default function HomePage() {
                 Tinjau dan sunting minutes of meeting berbasis Markdown sebelum dibagikan ke tim.
               </p>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-sm text-muted-foreground">
-                  Sunting konten Minutes of Meeting di bawah ini.
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => {
-                    navigator.clipboard.writeText(summary || "")
-                    toast({ title: "Minutes of Meeting disalin" })
-                  }}
-                >
-                  <Copy className="h-4 w-4" />
-                  Salin
-                </Button>
-              </div>
-              <MarkdownField
-                label="Minutes of Meeting"
-                value={summary}
-                onChange={setSummary}
-                placeholder="Minutes of Meeting akan muncul di sini setelah proses AI selesai."
-                minHeight="200px"
-              />
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Button onClick={() => callAI("spec", "spec")} disabled={loading !== null || !summaryHasContent}>
-                  {loading === "spec" ? (
-                    <LoaderCircle className="h-4 w-4 animate-spin" />
+            <CardContent className="space-y-5">
+              {summaryPhase === "review" && momReview ? (
+                <div className="space-y-5">
+                  <Alert>
+                    <AlertTitle>Konfirmasi data rapat</AlertTitle>
+                    <AlertDescription>
+                      Baca hasil ekstraksi AI, lalu jawab pertanyaan klarifikasi satu per satu agar Minutes of Meeting akurat.
+                    </AlertDescription>
+                  </Alert>
+                  {summaryReady ? (
+                    <Alert>
+                      <AlertTitle>MoM sebelumnya masih tersimpan</AlertTitle>
+                      <AlertDescription>
+                        Hasil Minutes of Meeting lama tidak akan diganti sampai Anda menekan "Buat Minutes of Meeting" setelah klarifikasi selesai.
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+                  <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Data yang ditemukan AI</h3>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {metadataEntries.map((item) => (
+                        <div key={item.label} className="rounded-md bg-background px-3 py-2 shadow-sm">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">{item.label}</p>
+                          <p className="text-sm font-medium text-foreground">{item.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-semibold text-foreground">Peserta</h4>
+                        {momReview.attendees.length ? (
+                          <ul className="grid gap-1 text-sm text-muted-foreground">
+                            {momReview.attendees.map((person, idx) => (
+                              <li key={`${person.name}-${idx}`}>
+                                <span className="font-medium text-foreground">{person.name}</span>
+                                {person.role ? <span> - {person.role}</span> : null}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Tidak disebutkan.</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-semibold text-foreground">Pertemuan selanjutnya</h4>
+                        <div className="rounded-md bg-background px-3 py-2 text-sm text-muted-foreground">
+                          <p><span className="font-medium text-foreground">Tanggal:</span> {formatValue(momReview.nextMeeting.date)}</p>
+                          <p><span className="font-medium text-foreground">Agenda:</span> {formatValue(momReview.nextMeeting.agenda)}</p>
+                          <p><span className="font-medium text-foreground">Outcome:</span> {formatValue(momReview.nextMeeting.expectedOutcome)}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-semibold text-foreground">Topik diskusi</h4>
+                        {momReview.topics.length ? (
+                          <div className="grid gap-2 text-sm text-muted-foreground">
+                            {momReview.topics.map((topic, idx) => (
+                              <div key={`${topic.topic}-${idx}`} className="rounded-md border border-border/60 bg-background/60 px-3 py-2">
+                                <p className="font-semibold text-foreground">{topic.topic}</p>
+                                <p><span className="font-medium text-foreground">Poin:</span> {formatValue(topic.keyPoints)}</p>
+                                <p><span className="font-medium text-foreground">Keputusan:</span> {formatValue(topic.decision)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Tidak disebutkan.</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-semibold text-foreground">Action items</h4>
+                        {momReview.actionItems.length ? (
+                          <div className="grid gap-2 text-sm text-muted-foreground">
+                            {momReview.actionItems.map((item, idx) => (
+                              <div key={`${item.action}-${idx}`} className="rounded-md border border-border/60 bg-background/60 px-3 py-2">
+                                <p className="font-semibold text-foreground">{item.action}</p>
+                                <p><span className="font-medium text-foreground">PIC:</span> {formatValue(item.pic)}</p>
+                                <p><span className="font-medium text-foreground">Due:</span> {formatValue(item.dueDate)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Tidak disebutkan.</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-semibold text-foreground">Risiko & isu</h4>
+                        {momReview.risks.length ? (
+                          <div className="grid gap-2 text-sm text-muted-foreground">
+                            {momReview.risks.map((risk, idx) => (
+                              <div key={`${risk.risk}-${idx}`} className="rounded-md border border-border/60 bg-background/60 px-3 py-2">
+                                <p className="font-semibold text-foreground">{risk.risk}</p>
+                                <p><span className="font-medium text-foreground">Dampak:</span> {formatValue(risk.impact)}</p>
+                                <p><span className="font-medium text-foreground">Mitigasi:</span> {formatValue(risk.mitigation)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Tidak disebutkan.</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-semibold text-foreground">Pertanyaan terbuka</h4>
+                        {momReview.openIssues.length ? (
+                          <div className="grid gap-2 text-sm text-muted-foreground">
+                            {momReview.openIssues.map((issue, idx) => (
+                              <div key={`${issue.question}-${idx}`} className="rounded-md border border-border/60 bg-background/60 px-3 py-2">
+                                <p className="font-semibold text-foreground">{issue.question}</p>
+                                <p><span className="font-medium text-foreground">Owner:</span> {formatValue(issue.owner)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Tidak disebutkan.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {activeClarification ? (
+                    <div className="space-y-4 rounded-lg border border-primary/40 bg-primary/10 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                            Klarifikasi {clarificationAnswers.length + 1} dari {clarifications.length}
+                          </p>
+                          <h3 className="text-base font-semibold text-primary">Perlu konfirmasi</h3>
+                        </div>
+                        <Badge variant={severityVariant(activeClarification.severity)}>
+                          {severityLabel[activeClarification.severity]}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-foreground">{activeClarification.prompt}</p>
+                      {activeClarification.currentValue ? (
+                        <div className="rounded-md border border-primary/40 bg-background px-3 py-2 text-sm whitespace-pre-wrap">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nilai saat ini</p>
+                          <p className="mt-1 text-foreground">{activeClarification.currentValue}</p>
+                        </div>
+                      ) : null}
+                      {activeClarification.formatHint ? (
+                        <p className="text-xs text-muted-foreground">Format yang disarankan: {activeClarification.formatHint}</p>
+                      ) : null}
+                      {activeClarification.suggestions?.length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {activeClarification.suggestions.map((suggestion) => (
+                            <Button
+                              key={suggestion}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setClarificationInput(suggestion)}
+                            >
+                              Gunakan "{suggestion}"
+                            </Button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <Textarea
+                        value={clarificationInput}
+                        onChange={(event) => setClarificationInput(event.target.value)}
+                        placeholder="Tulis jawaban Anda..."
+                        rows={activeClarification.answerType === "text" ? 3 : 5}
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          onClick={() => handleClarificationSubmit(clarificationInput)}
+                          disabled={loading !== null}
+                          className="gap-2"
+                        >
+                          {loading === "summarize" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                          Simpan jawaban
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={handleClarificationSkip}
+                          disabled={loading !== null}
+                        >
+                          Gunakan data awal
+                        </Button>
+                      </div>
+                    </div>
                   ) : (
-                    <Sparkles className="h-4 w-4" />
+                    <div className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-5 text-sm text-primary">
+                      Semua pertanyaan klarifikasi sudah dijawab. Klik "Buat Minutes of Meeting" untuk menyusun MoM akhir.
+                    </div>
                   )}
-                  {loading === "spec" ? "Menyusun…" : "Generate Spesifikasi"}
-                </Button>
-                <Button variant="ghost" onClick={() => callAI("summarize")} disabled={loading !== null}>
-                  {loading === "summarize" ? "Memperbarui…" : "Perbarui Minutes of Meeting"}
-                </Button>
-              </div>
+                  {answeredClarifications.length > 0 ? (
+                    <div className="space-y-3 rounded-lg border bg-muted/40 p-4">
+                      <h3 className="text-sm font-semibold text-foreground">Jawaban Anda</h3>
+                      <div className="grid gap-3">
+                        {answeredClarifications.map((clar) => {
+                          const answer = clarificationAnswerMap.get(clar.id)?.answer
+                          return (
+                            <div key={clar.id} className="space-y-2 rounded-md border bg-background px-3 py-3 text-sm">
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div className="max-w-3xl">
+                                  <p className="font-medium text-foreground">{clar.prompt}</p>
+                                  <p className="text-xs text-muted-foreground">Field: {clar.fieldPath}</p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleClarificationEdit(clar)}
+                                >
+                                  Ubah jawaban
+                                </Button>
+                              </div>
+                              <div className="whitespace-pre-wrap text-foreground">
+                                {answer ? answer : <span className="italic text-muted-foreground">Tetap gunakan nilai awal.</span>}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      type="button"
+                      onClick={() => finalizeMomWorkflow()}
+                      disabled={loading !== null || !allClarificationsAnswered || !momReview}
+                      className="gap-2"
+                    >
+                      {loading === "summarize" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      Buat Minutes of Meeting
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      {allClarificationsAnswered
+                        ? "Siap menyusun MoM akhir."
+                        : `Selesaikan ${pendingClarifications.length} pertanyaan lagi.`}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => startMomWorkflow("summary")}
+                      disabled={loading !== null}
+                    >
+                      Muat ulang klarifikasi
+                    </Button>
+                  </div>
+                </div>
+              ) : summaryPhase === "finalized" ? (
+                <div className="space-y-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-sm text-muted-foreground">
+                      Sunting konten Minutes of Meeting di bawah ini.
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => {
+                        navigator.clipboard.writeText(summary || "")
+                        toast({ title: "Minutes of Meeting disalin" })
+                      }}
+                    >
+                      <Copy className="h-4 w-4" />
+                      Salin
+                    </Button>
+                  </div>
+                  <MarkdownField
+                    label="Minutes of Meeting"
+                    value={summary}
+                    onChange={setSummary}
+                    placeholder="Minutes of Meeting akan muncul di sini setelah proses AI selesai."
+                    minHeight="200px"
+                  />
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Button onClick={() => callAI("spec", "spec")} disabled={loading !== null || !summaryReady}>
+                      {loading === "spec" ? (
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4" />
+                      )}
+                      {loading === "spec" ? "Menyusun…" : "Generate Spesifikasi"}
+                    </Button>
+                    <Button variant="ghost" onClick={() => startMomWorkflow()} disabled={loading !== null}>
+                      {loading === "summarize" ? "Menyiapkan review…" : "Perbarui Minutes of Meeting"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 rounded-lg border border-dashed bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+                  <p>Belum ada Minutes of Meeting.</p>
+                  <p>
+                    Jalankan <span className="font-medium text-foreground">Ringkas Otomatis</span> pada langkah sebelumnya untuk memulai review.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </section>
