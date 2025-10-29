@@ -181,6 +181,7 @@ export function MomReviewPanel({
             </div>
           ) : null}
           <Textarea
+            className="bg-background"
             value={clarificationInput}
             onChange={(event) => onClarificationInputChange(event.target.value)}
             placeholder="Tulis jawaban Anda..."
@@ -261,15 +262,18 @@ export function MomReviewPanel({
             {momReview.attendees.length ? (
               <ul className="grid gap-1 text-sm text-muted-foreground">
                 {momReview.attendees.map((person, idx) => (
-                  <li key={`${person.name}-${idx}`}>
+                  <li key={`${person.name}-${idx}`} className="rounded bg-muted/50 px-2 py-1">
                     <span className="font-medium text-foreground">{person.name}</span>
-                    {person.role ? <span> - {person.role}</span> : null}
+                    {person.role ? <span className="text-muted-foreground"> - {person.role}</span> : null}
                   </li>
                 ))}
               </ul>
             ) : (
               <p className="text-sm text-muted-foreground">Tidak disebutkan.</p>
             )}
+            <p className="text-xs text-muted-foreground italic">
+              💡 Pastikan nama dan peran peserta sudah benar melalui pertanyaan klarifikasi
+            </p>
           </div>
           
           <div className="space-y-2">

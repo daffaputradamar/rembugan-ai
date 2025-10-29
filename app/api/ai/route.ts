@@ -300,10 +300,11 @@ Panduan:
 - Baca seluruh transkrip, identifikasi informasi relevan sesuai struktur di atas.
 - Isi semua field pada "review"; gunakan "Tidak disebutkan" bila benar-benar tidak ditemukan.
 - Bangun daftar "clarifications" hanya untuk bagian yang masih meragukan, tidak lengkap, atau bertentangan. Hindari menanyakan ulang informasi yang sudah jelas.
-- Batasi klarifikasi maksimal 5 pertanyaan, urutkan dari prioritas tertinggi.
+- **PENTING**: Selalu buat klarifikasi untuk "attendees" jika ada nama peserta yang terdeteksi, karena pengguna perlu memastikan ejaan nama dan peran yang benar. Gunakan fieldPath "attendees" dan berikan formatHint "Tulis setiap peserta dengan format: Nama Lengkap - Peran/Jabatan (satu baris per peserta)".
+- Batasi klarifikasi maksimal 7 pertanyaan (termasuk attendees), urutkan dari prioritas tertinggi.
 - Tulis "prompt" dalam gaya percakapan santun dan hangat.
 - "currentValue" harus merefleksikan nilai yang dianggap tidak akurat agar pengguna tahu konteksnya.
-- Gunakan "answerType" dan "formatHint" untuk memandu format jawaban (contoh: "Tulis setiap peserta dengan format: Nama - Peran").
+- Gunakan "answerType" dan "formatHint" untuk memandu format jawaban.
 - Jika tidak ada bagian yang membutuhkan klarifikasi, kembalikan array "clarifications" kosong.
 
 Transcript:
