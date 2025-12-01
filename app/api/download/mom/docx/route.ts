@@ -4,30 +4,26 @@ import {
   Packer, 
   Paragraph, 
   HeadingLevel, 
-  TextRun,
-  Table,
-  TableRow,
-  TableCell,
-  WidthType,
+  TextRun, 
+  Table, 
+  TableRow, 
+  TableCell, 
+  WidthType, 
   BorderStyle,
   AlignmentType,
   convertInchesToTwip
 } from "docx"
 
-import { parseMarkdownToBlocks, stripInlineMarkdown, type MarkdownBlock } from "@/lib/markdown"
-import type { SpecData } from "@/components/spec-editor"
-import { specToMarkdown } from "@/lib/spec-markdown"
+import { parseMarkdownToBlocks } from "@/lib/markdown"
 
 export async function POST(req: NextRequest) {
-  const { spec, summary } = (await req.json()) as { spec: SpecData; summary?: string }
-  if (!spec) return new Response("Missing spec", { status: 400 })
+  const { markdown, filename } = (await req.json()) as { markdown: string; filename?: string }
+  if (!markdown) return new Response("Missing markdown content", { status: 400 })
 
-  // Convert spec to markdown first
-  const markdown = specToMarkdown(spec, summary)
   const blocks = parseMarkdownToBlocks(markdown)
 
   const children: (Paragraph | Table)[] = []
-  
+
   blocks.forEach((block, index) => {
     switch (block.type) {
       case "heading":
@@ -130,7 +126,6 @@ export async function POST(req: NextRequest) {
         children.push(new Paragraph({ text: "", spacing: { after: 120 } }))
         break
       case "code":
-        // For ASCII diagrams
         children.push(new Paragraph({ text: "", spacing: { before: 80 } }))
         block.text.split(/\r?\n/).forEach((line) => {
           children.push(
@@ -151,7 +146,7 @@ export async function POST(req: NextRequest) {
         break
       case "paragraph":
       default:
-        if (block.text && block.text.trim()) {
+        if (block.text.trim()) {
           children.push(
             new Paragraph({ 
               children: [new TextRun(stripInlineMarkdown(block.text))],
@@ -183,10 +178,12 @@ export async function POST(req: NextRequest) {
 
   const blob = await Packer.toBlob(doc)
   const arrayBuffer = await blob.arrayBuffer()
+  const outputFilename = filename || "minutes-of-meeting.docx"
+  
   return new Response(arrayBuffer, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "Content-Disposition": 'attachment; filename="product-spec.docx"',
+      "Content-Disposition": `attachment; filename="${outputFilename}"`,
     },
   })
 }
@@ -201,4 +198,14 @@ function mapHeadingLevel(level: number) {
     HeadingLevel.HEADING_6,
   ]
   return mapping[Math.min(Math.max(level, 1), mapping.length) - 1] ?? HeadingLevel.HEADING_2
+}
+
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/_(.+?)_/g, "$1")
+    .replace(/`(.+?)`/g, "$1")
+    .replace(/\[(.+?)\]\(.+?\)/g, "$1")
 }

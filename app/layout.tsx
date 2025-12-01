@@ -1,18 +1,16 @@
 import type { Metadata } from "next"
-import { GeistSans } from "geist/font/sans"
-import { GeistMono } from "geist/font/mono"
 import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 import {
-  Geist as V0_Font_Geist,
-  Geist_Mono as V0_Font_Geist_Mono,
-  Source_Serif_4 as V0_Font_Source_Serif_4,
+  Inter
 } from "next/font/google"
+import { Toaster } from "@/components/ui/sonner"
 
-// Initialize fonts
-const _geist = V0_Font_Geist({ subsets: ['latin'], weight: ["100","200","300","400","500","600","700","800","900"] })
-const _geistMono = V0_Font_Geist_Mono({ subsets: ['latin'], weight: ["100","200","300","400","500","600","700","800","900"] })
-const _sourceSerif_4 = V0_Font_Source_Serif_4({ subsets: ['latin'], weight: ["200","300","400","500","600","700","800","900"] })
+const _inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+})
 
 export const metadata: Metadata = {
   title: "RembuganAI",
@@ -29,8 +27,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`min-h-screen bg-background text-foreground font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
+      <body className={`min-h-screen bg-background text-foreground font-sans ${_inter.variable}`}>
+        {/* Futuristic Background */}
+        <div className="futuristic-bg">
+          <div className="glow-orb glow-orb-1" />
+          <div className="glow-orb glow-orb-2" />
+          <div className="glow-orb glow-orb-3" />
+          <div className="scan-line" />
+          <div className="noise-overlay" />
+        </div>
         {children}
+        <Toaster richColors />
         <Analytics />
       </body>
     </html>

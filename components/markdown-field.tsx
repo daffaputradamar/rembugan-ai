@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Eye, FileCode2, Sparkles, X, Loader2 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { toast } from "@/components/ui/use-toast"
+import { toast } from "sonner"
 
 export function MarkdownField({
   label,
@@ -32,7 +32,7 @@ export function MarkdownField({
 
   const handleAiEdit = async () => {
     if (!aiPrompt.trim()) {
-      toast({ title: "Prompt diperlukan", description: "Masukkan instruksi untuk AI." })
+      toast.error("Prompt diperlukan", { description: "Masukkan instruksi untuk AI." })
       return
     }
 
@@ -56,10 +56,10 @@ export function MarkdownField({
       setAiPrompt("")
       setShowAiPrompt(false)
       setView("preview")
-      toast({ title: "Berhasil diperbarui", description: "Konten telah diperbarui dengan AI." })
+      toast.success("Berhasil diperbarui", { description: "Konten telah diperbarui dengan AI." })
     } catch (error: unknown) {
       const description = error instanceof Error ? error.message : "Coba lagi."
-      toast({ title: "AI gagal memproses", description })
+      toast.error("AI gagal memproses", { description })
     } finally {
       setIsAiProcessing(false)
     }

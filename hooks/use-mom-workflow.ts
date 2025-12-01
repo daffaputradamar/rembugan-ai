@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { toast } from "@/components/ui/use-toast"
+import { toast } from "sonner"
 import type {
   MomReview,
   MomClarification,
@@ -122,7 +122,7 @@ export function useMomWorkflow({ transcript, step, setStep }: UseMomWorkflowProp
 
   async function startMomWorkflow(nextStep?: Step) {
     if (!transcript.trim()) {
-      toast({ title: "Transkrip belum diisi", description: "Unggah atau tempelkan teks rapat terlebih dahulu." })
+      toast.error("Transkrip belum diisi", { description: "Unggah atau tempelkan teks rapat terlebih dahulu." })
       return
     }
 
@@ -150,19 +150,17 @@ export function useMomWorkflow({ transcript, step, setStep }: UseMomWorkflowProp
       }
 
       if (Array.isArray(data.clarifications) && data.clarifications.length > 0) {
-        toast({
-          title: "Perlu konfirmasi",
+        toast.info("Perlu konfirmasi", {
           description: `${data.clarifications.length} pertanyaan klarifikasi siap dijawab.`,
         })
       } else {
-        toast({
-          title: "Review siap",
+        toast.success("Review siap", {
           description: 'Tidak ada klarifikasi tambahan. Klik "Buat Minutes of Meeting" untuk menyelesaikan.',
         })
       }
     } catch (error: unknown) {
       const description = error instanceof Error ? error.message : "Please try again."
-      toast({ title: "Gagal menganalisis rapat", description })
+      toast.error("Gagal menganalisis rapat", { description })
     } finally {
       setLoading(null)
     }
@@ -170,12 +168,12 @@ export function useMomWorkflow({ transcript, step, setStep }: UseMomWorkflowProp
 
   async function finalizeMomWorkflow(nextStep?: Step) {
     if (!momReview) {
-      toast({ title: "Belum ada data review", description: "Jalankan analisis Minutes of Meeting terlebih dahulu." })
+      toast.error("Belum ada data review", { description: "Jalankan analisis Minutes of Meeting terlebih dahulu." })
       return
     }
 
     if (!transcript.trim()) {
-      toast({ title: "Transkrip belum diisi", description: "Unggah atau tempelkan teks rapat terlebih dahulu." })
+      toast.error("Transkrip belum diisi", { description: "Unggah atau tempelkan teks rapat terlebih dahulu." })
       return
     }
 
@@ -201,15 +199,14 @@ export function useMomWorkflow({ transcript, step, setStep }: UseMomWorkflowProp
       setClarifications([])
       setSummaryPhase("finalized")
 
-      toast({
-        title: "MoM siap",
+      toast.success("MoM siap", {
         description: "Minutes of Meeting sudah diperbarui berdasarkan klarifikasi Anda.",
       })
 
       if (nextStep) setStep(nextStep)
     } catch (error: unknown) {
       const description = error instanceof Error ? error.message : "Please try again."
-      toast({ title: "Gagal menyusun MoM", description })
+      toast.error("Gagal menyusun MoM", { description })
     } finally {
       setLoading(null)
     }
@@ -292,3 +289,5 @@ export function useMomWorkflow({ transcript, step, setStep }: UseMomWorkflowProp
     resetMomWorkflow,
   }
 }
+
+export type UseMomWorkflowReturn = ReturnType<typeof useMomWorkflow>

@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Eye, FileCode2, Sparkles, X, Loader2, RefreshCw } from "lucide-react"
-import { toast } from "@/components/ui/use-toast"
+import { toast } from "sonner"
 import mermaid from "mermaid"
 
 function extractMermaidContent(text: string) {
@@ -66,7 +66,7 @@ export function DiagramViewer({
 
   const handleAiEdit = async () => {
     if (!aiPrompt.trim()) {
-      toast({ title: "Prompt diperlukan", description: "Masukkan instruksi untuk AI." })
+      toast.error("Prompt diperlukan", { description: "Masukkan instruksi untuk AI." })
       return
     }
 
@@ -94,10 +94,10 @@ export function DiagramViewer({
       setAiPrompt("")
       setShowAiPrompt(false)
       setMode("preview")
-      toast({ title: "Berhasil diperbarui", description: "Diagram telah diperbarui dengan AI." })
+      toast.success("Berhasil diperbarui", { description: "Diagram telah diperbarui dengan AI." })
     } catch (error: unknown) {
       const description = error instanceof Error ? error.message : "Coba lagi."
-      toast({ title: "AI gagal memproses", description })
+      toast.error("AI gagal memproses", { description })
     } finally {
       setIsAiProcessing(false)
     }
@@ -105,16 +105,14 @@ export function DiagramViewer({
 
   const handleAiRegenerate = async () => {
     if (!value.trim()) {
-      toast({
-        title: "Diagram kosong",
+      toast.error("Diagram kosong", {
         description: "Tambahkan definisi diagram terlebih dahulu sebelum memperbaikinya dengan AI.",
       })
       return
     }
 
     if (!renderError) {
-      toast({
-        title: "Tidak ada error",
+      toast.info("Tidak ada error", {
         description: "Diagram saat ini tidak memiliki error untuk diperbaiki.",
       })
       return
@@ -145,13 +143,12 @@ export function DiagramViewer({
 
       onChange(result)
       setMode("preview")
-      toast({
-        title: "Diagram diperbaiki",
+      toast.success("Diagram diperbaiki", {
         description: "AI mencoba memperbaiki diagram berdasarkan pesan error.",
       })
     } catch (error: unknown) {
       const description = error instanceof Error ? error.message : "Coba lagi."
-      toast({ title: "Gagal memperbaiki dengan AI", description })
+      toast.error("Gagal memperbaiki dengan AI", { description })
     } finally {
       setIsAiProcessing(false)
     }

@@ -1,16 +1,12 @@
 import type { NextRequest } from "next/server"
-import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib"
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib"
 
-import { parseMarkdownToBlocks, stripInlineMarkdown, type MarkdownBlock } from "@/lib/markdown"
-import type { SpecData } from "@/components/spec-editor"
-import { specToMarkdown } from "@/lib/spec-markdown"
+import { parseMarkdownToBlocks } from "@/lib/markdown"
 
 export async function POST(req: NextRequest) {
-  const { spec, summary } = (await req.json()) as { spec: SpecData; summary?: string }
-  if (!spec) return new Response("Missing spec", { status: 400 })
+  const { markdown, filename } = (await req.json()) as { markdown: string; filename?: string }
+  if (!markdown) return new Response("Missing markdown content", { status: 400 })
 
-  // Convert spec to markdown first
-  const markdown = specToMarkdown(spec, summary)
   const blocks = parseMarkdownToBlocks(markdown)
 
   const pdfDoc = await PDFDocument.create()
@@ -34,6 +30,35 @@ export async function POST(req: NextRequest) {
     if (y - height < margin) {
       newPage()
     }
+  }
+
+  function drawText(text: string, options: { 
+    x?: number; 
+    size?: number; 
+    useBold?: boolean; 
+    useFont?: PDFFont;
+    maxWidth?: number;
+  } = {}) {
+    const { 
+      x = margin, 
+      size = fontSize, 
+      useBold = false, 
+      useFont,
+      maxWidth = contentWidth 
+    } = options
+    
+    const sanitized = removeNonWinAnsiChars(stripInlineMarkdown(text))
+    if (!sanitized) return
+    
+    const selectedFont = useFont || (useBold ? bold : font)
+    const lines = wrapText(sanitized, maxWidth, selectedFont, size)
+    const currentLineHeight = size + 4
+    
+    lines.forEach((line) => {
+      ensureSpace(currentLineHeight)
+      page.drawText(line, { x, y, size, font: selectedFont })
+      y -= currentLineHeight
+    })
   }
 
   function addSpacing(space: number) {
@@ -60,20 +85,6 @@ export async function POST(req: NextRequest) {
     addSpacing(spacing / 2)
   }
 
-  function drawParagraph(text: string) {
-    const sanitized = removeNonWinAnsiChars(stripInlineMarkdown(text))
-    if (!sanitized) return
-    
-    addSpacing(4)
-    const lines = wrapText(sanitized, contentWidth, font, fontSize)
-    lines.forEach((line) => {
-      ensureSpace(lineHeight)
-      page.drawText(line, { x: margin, y, size: fontSize, font })
-      y -= lineHeight
-    })
-    addSpacing(8)
-  }
-
   function drawList(items: string[], ordered = false) {
     addSpacing(6)
     
@@ -81,7 +92,7 @@ export async function POST(req: NextRequest) {
       const sanitized = removeNonWinAnsiChars(stripInlineMarkdown(item))
       if (!sanitized) return
       
-      const prefix = ordered ? `${index + 1}. ` : "- "
+      const prefix = ordered ? `${index + 1}. ` : "• "
       const prefixWidth = font.widthOfTextAtSize(prefix, fontSize)
       const textMaxWidth = contentWidth - prefixWidth - 10
       const lines = wrapText(sanitized, textMaxWidth, font, fontSize)
@@ -245,8 +256,6 @@ export async function POST(req: NextRequest) {
   }
 
   function drawCode(text: string) {
-    if (!text) return
-    
     addSpacing(8)
     
     const sanitizedText = removeNonWinAnsiChars(text)
@@ -284,6 +293,12 @@ export async function POST(req: NextRequest) {
     addSpacing(8)
   }
 
+  function drawParagraph(text: string) {
+    addSpacing(4)
+    drawText(text)
+    addSpacing(8)
+  }
+
   // Process blocks
   blocks.forEach((block, index) => {
     switch (block.type) {
@@ -302,7 +317,7 @@ export async function POST(req: NextRequest) {
         break
       case "paragraph":
       default:
-        if (block.text && block.text.trim()) {
+        if (block.text.trim()) {
           drawParagraph(block.text)
         }
         break
@@ -311,10 +326,12 @@ export async function POST(req: NextRequest) {
 
   const bytes = await pdfDoc.save()
   const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+  const outputFilename = filename || "minutes-of-meeting.pdf"
+  
   return new Response(arrayBuffer, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": 'attachment; filename="product-spec.pdf"',
+      "Content-Disposition": `attachment; filename="${outputFilename}"`,
     },
   })
 }
@@ -334,7 +351,6 @@ function removeNonWinAnsiChars(text: string): string {
     .trim()
 }
 
-// Basic text wrapper for pdf-lib
 function wrapText(text: string, maxWidth: number, font: PDFFont, size: number): string[] {
   const sanitizedText = removeNonWinAnsiChars(text || "")
   if (!sanitizedText) return []
@@ -355,4 +371,14 @@ function wrapText(text: string, maxWidth: number, font: PDFFont, size: number): 
   }
   if (line) lines.push(line)
   return lines
+}
+
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/_(.+?)_/g, "$1")
+    .replace(/`(.+?)`/g, "$1")
+    .replace(/\[(.+?)\]\(.+?\)/g, "$1")
 }

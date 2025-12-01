@@ -5,6 +5,7 @@ import { LoaderCircle } from "lucide-react"
 interface LoadingOverlayProps {
   uploading?: boolean
   downloading?: "docx" | "pdf" | null
+  downloadingMom?: "docx" | "pdf" | null
   syncingOutline?: boolean
   loading?: "summarize" | "spec" | null
   generatingStep?: "urd" | "analysisDesign" | "testScenario" | null
@@ -13,11 +14,12 @@ interface LoadingOverlayProps {
 export function LoadingOverlay({
   uploading,
   downloading,
+  downloadingMom,
   syncingOutline,
   loading,
   generatingStep,
 }: LoadingOverlayProps) {
-  const isLoading = loading !== null || uploading || downloading !== null || syncingOutline
+  const isLoading = loading !== null || uploading || downloading !== null || downloadingMom !== null || syncingOutline
 
   if (!isLoading) return null
 
@@ -33,17 +35,21 @@ export function LoadingOverlay({
                 ? "Menyiapkan dokumen DOCX"
                 : downloading === "pdf"
                   ? "Menyiapkan dokumen PDF"
-                  : syncingOutline
-                    ? "Mengirim dokumen ke Outline"
-                    : loading === "summarize"
-                      ? "AI sedang merangkum"
-                      : generatingStep === "urd"
-                        ? "Membuat User Requirement Document (1/3)"
-                        : generatingStep === "analysisDesign"
-                          ? "Membuat Analysis & Design Document (2/3)"
-                          : generatingStep === "testScenario"
-                            ? "Membuat Test Scenario Document (3/3)"
-                            : "AI sedang menyusun spesifikasi"}
+                  : downloadingMom === "docx"
+                    ? "Menyiapkan Minutes of Meeting (DOCX)"
+                    : downloadingMom === "pdf"
+                      ? "Menyiapkan Minutes of Meeting (PDF)"
+                      : syncingOutline
+                        ? "Mengirim dokumen ke Outline"
+                        : loading === "summarize"
+                          ? "AI sedang merangkum"
+                          : generatingStep === "urd"
+                            ? "Membuat User Requirement Document (1/3)"
+                            : generatingStep === "analysisDesign"
+                              ? "Membuat Analysis & Design Document (2/3)"
+                              : generatingStep === "testScenario"
+                                ? "Membuat Test Scenario Document (3/3)"
+                                : "AI sedang menyusun spesifikasi"}
           </p>
           <p className="text-xs text-muted-foreground">
             {generatingStep
