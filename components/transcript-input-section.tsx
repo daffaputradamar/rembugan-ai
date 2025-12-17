@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { ArrowRight, LoaderCircle, Sparkles, UploadCloud } from "lucide-react"
+import { TemplateManager } from "@/components/template-manager"
+import type { CustomTemplate } from "@/types/mom"
 
 interface TranscriptInputSectionProps {
   transcript: string
@@ -19,6 +21,14 @@ interface TranscriptInputSectionProps {
   onSummarize: () => void
   onReset: () => void
   onGoToSummary: () => void
+  customTemplate: CustomTemplate | null
+  onTemplateChange: (template: CustomTemplate | null) => void
+  // Session info for template visibility
+  userDivisionIds?: number[]
+  userDepartmentIds?: number[]
+  userDivisionNames?: string[]
+  userDepartmentNames?: string[]
+  isAuthenticated?: boolean
 }
 
 export function TranscriptInputSection({
@@ -31,6 +41,13 @@ export function TranscriptInputSection({
   onSummarize,
   onReset,
   onGoToSummary,
+  customTemplate,
+  onTemplateChange,
+  userDivisionIds = [],
+  userDepartmentIds = [],
+  userDivisionNames = [],
+  userDepartmentNames = [],
+  isAuthenticated = false,
 }: TranscriptInputSectionProps) {
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -149,7 +166,7 @@ export function TranscriptInputSection({
               onDrop={handleDrop}
               aria-disabled={uploading}
               aria-label="Unggah berkas dengan drag and drop atau klik untuk memilih"
-              className={`group flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+              className={`group relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
                 uploading
                   ? "cursor-not-allowed border-border bg-muted/60 text-muted-foreground"
                   : isDragging
@@ -157,6 +174,14 @@ export function TranscriptInputSection({
                     : "cursor-pointer border-border bg-muted/40 text-muted-foreground hover:border-primary/50 hover:bg-primary/5"
               }`}
             >
+              {uploading && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-background/80 backdrop-blur-sm">
+                  <div className="flex flex-col items-center gap-2">
+                    <LoaderCircle className="h-6 w-6 animate-spin text-primary" />
+                    <p className="text-sm font-medium text-foreground">Sedang memproses…</p>
+                  </div>
+                </div>
+              )}
               <UploadCloud className={`h-8 w-8 transition ${isDragging ? "text-primary" : "text-primary/70"}`} />
               <p className="mt-3 text-sm font-medium text-foreground">Seret & lepas transkrip Anda</p>
               <p className="text-xs text-muted-foreground">
@@ -186,6 +211,19 @@ export function TranscriptInputSection({
               className="min-h-[260px] max-h-[500px] overflow-y-auto font-mono"
             />
           </div>
+          
+          {/* Template Manager */}
+          <TemplateManager
+            selectedTemplate={customTemplate}
+            onTemplateSelect={onTemplateChange}
+            disabled={loading !== null || uploading}
+            userDivisionIds={userDivisionIds}
+            userDepartmentIds={userDepartmentIds}
+            userDivisionNames={userDivisionNames}
+            userDepartmentNames={userDepartmentNames}
+            isAuthenticated={isAuthenticated}
+          />
+          
           <div className="grid gap-2 sm:grid-cols-2">
             <Button className="gap-2" onClick={onSummarize} disabled={loading !== null}>
               {loading === "summarize" ? (

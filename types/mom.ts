@@ -58,3 +58,29 @@ export type ClarificationAnswer = {
 export type SummaryPhase = "idle" | "review" | "finalized"
 export type AiMode = "summarize" | "spec"
 export type Step = "input" | "summary" | "spec"
+
+export type TemplateVisibility = "public" | "division" | "department" | "custom"
+export type TemplateType = "mom" | "urd" | "analysis_design" | "test_scenario" | "custom"
+
+export type CustomTemplate = {
+  id: string
+  name: string
+  description?: string | null
+  type: TemplateType
+  fileName?: string | null
+  markdown: string
+  rawText?: string | null
+  visibility: TemplateVisibility
+  divisionId?: number | null
+  departmentId?: number | null
+  isSystem?: boolean
+  isActive?: boolean
+  userId: string
+  ownerName?: string | null
+  ownerEmail?: string | null
+  allowedUserIds?: string[]
+  isOwner?: boolean
+  canModify?: boolean
+  createdAt: string
+  updatedAt?: string
+}

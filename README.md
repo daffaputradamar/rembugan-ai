@@ -51,6 +51,67 @@ OUTLINE_API_BASE_URL="https://app.getoutline.com"
 
 Token dapat diperoleh dari menu **Settings → API Tokens** di Outline. Nama proyek yang dimasukkan pengguna akan digunakan sebagai nama koleksi tujuan.
 
+### Google Speech-to-Text (Audio Transcription)
+
+To enable audio file transcription, configure Google Cloud Speech-to-Text:
+
+1. Create a Google Cloud project and enable the [Speech-to-Text API](https://console.cloud.google.com/apis/library/speech.googleapis.com)
+2. Create a service account with Speech-to-Text permissions
+3. Download the JSON key file
+4. **Create a Google Cloud Storage bucket** for audio uploads (required for files >1MB)
+5. Grant the service account **Storage Object Admin** role on the bucket
+6. Configure environment variables:
+
+```bash
+# Option 1: Path to credentials file
+GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account-key.json"
+
+# Option 2: JSON content directly (useful for deployments)
+GOOGLE_CREDENTIALS_JSON='{"type":"service_account","project_id":"...","private_key":"..."}'
+
+# GCS Bucket for audio files (required for files >1MB)
+GCS_BUCKET_NAME="your-audio-transcripts-bucket"
+# or
+GOOGLE_CLOUD_BUCKET="your-audio-transcripts-bucket"
+```
+
+**Supported audio formats:** `.wav`, `.mp3`, `.flac`, `.ogg`, `.webm`, `.m4a` (max 100MB)
+
+**Features:**
+- Automatic punctuation
+- Speaker diarization (identifies different speakers)
+- Indonesian (`id-ID`) and English support
+- **Smart processing:**
+  - Files <500KB: Synchronous transcription (~instant)
+  - Files 500KB-1MB: Asynchronous inline transcription
+  - Files >1MB: Automatic GCS upload + async transcription (no duration limit!)
+
+**How it works:**
+1. Small files (<1MB) are sent directly as base64 content
+2. Large files (>1MB) are uploaded to your GCS bucket
+3. Google Speech-to-Text processes the file from GCS URI
+4. Files are stored in `audio-transcripts/` folder with timestamp prefix
+
+### Audio Transcription Task Management
+
+- View transcription status in real-time (Pending → Processing → Ready/Failed)
+- Click "Add to Transcript" to insert completed transcriptions into the text area
+- Delete individual completed or failed transcriptions
+- **"Clear Logs" button** to remove all completed and failed tasks at once
+- Automatic 7-day retention for audio files (configurable via lifecycle policy)
+
+**Setup GCS Retention Policy (7 days):**
+
+```bash
+# Run the setup script to configure automatic cleanup
+npx ts-node scripts/setup-gcs-retention.ts
+```
+
+This will:
+- Set lifecycle policy on `audio-transcripts/` folder
+- Automatically delete files older than 7 days
+- Save storage costs by avoiding unnecessary retention
+
 ## 🧱 Teknologi
 
 - [Next.js 15](https://nextjs.org/) + App Router

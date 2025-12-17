@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server"
 import * as mammoth from "mammoth"
+import { extractText } from "unpdf"
 
 export async function POST(req: NextRequest) {
   const formData = await req.formData()
@@ -20,6 +21,13 @@ export async function POST(req: NextRequest) {
     if (name.endsWith(".docx")) {
       const result = await mammoth.extractRawText({ buffer: buf })
       return new Response(JSON.stringify({ text: result.value || "" }), {
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+    if (name.endsWith(".pdf")) {
+      const uint8Array = new Uint8Array(buf)
+      const { text } = await extractText(uint8Array)
+      return new Response(JSON.stringify({ text: text || "" }), {
         headers: { "Content-Type": "application/json" },
       })
     }

@@ -1,507 +1,314 @@
 import type { NextRequest } from "next/server";
-import { generateObject, generateText } from "ai";
-import { google } from "@ai-sdk/google";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { generateText, generateObject, truncateText, extractSpeakers } from "@/lib/llm";
 import { z } from "zod";
 
-// Note: Next.js handles provider configuration via the AI Gateway. You only pass a model string.
-const MODEL = google("gemini-2.5-flash");
+// Simplified system prompt for local models
+const systemPreamble = `You are an expert meeting summarizer. Respond in Bahasa Indonesia. Be concise.`;
 
-const systemPreamble = `
-You are an expert product manager and technical writer.
-Return concise, clear results grounded in the provided transcript.
-Respond exclusively in Bahasa Indonesia.
-`;
-
-const mermaidInstruction = readFileSync(
-  join(process.cwd(), "docs", "Mermaid.md"),
-  "utf8"
-).trim();
+// Max transcript length for local models
+const MAX_TRANSCRIPT_LENGTH = 250000;
+// Simplified MoM schema for local models
 const momReviewSchema = z.object({
-  projectName: z.string().describe("Nama proyek atau inisiatif"),
-  meetingTitle: z.string().describe("Judul rapat"),
-  meetingObjective: z.string().describe("Tujuan rapat"),
-  meetingDate: z.string().describe("Tanggal rapat"),
-  meetingTime: z.string().describe("Waktu rapat"),
-  meetingLocation: z.string().describe("Lokasi atau platform rapat"),
-  attendees: z
-    .array(
-      z.object({
-        name: z.string().describe("Nama peserta"),
-        role: z.string().describe("Peran peserta"),
-      })
-    )
-    .describe("Daftar peserta dan peran"),
-  topics: z
-    .array(
-      z.object({
-        topic: z.string().describe("Topik utama"),
-        keyPoints: z.string().describe("Ringkasan pembahasan"),
-        decision: z
-          .string()
-          .describe("Keputusan atau hasil (gunakan 'Tidak ada keputusan' jika tidak ada)"),
-      })
-    )
-    .describe("Daftar topik utama, ringkasan, dan keputusan"),
-  actionItems: z
-    .array(
-      z.object({
-        action: z.string().describe("Item aksi"),
-        pic: z.string().describe("Penanggung jawab"),
-        dueDate: z
-          .string()
-          .describe("Tenggat (gunakan 'Tidak disebutkan' bila tidak ada)")
-          .default("Tidak disebutkan"),
-      })
-    )
-    .describe("Daftar action item beserta PIC dan tenggat"),
-  risks: z
-    .array(
-      z.object({
-        risk: z.string().describe("Risiko atau isu"),
-        impact: z
-          .string()
-          .describe("Dampak jika risiko terjadi (boleh 'Tidak disebutkan')"),
-        mitigation: z
-          .string()
-          .describe("Mitigasi atau rencana tindak lanjut"),
-      })
-    )
-    .describe("Daftar risiko dan mitigasinya"),
-  openIssues: z
-    .array(
-      z.object({
-        question: z.string().describe("Pertanyaan atau isu terbuka"),
-        owner: z.string().describe("Penanggung jawab lanjutan"),
-      })
-    )
-    .describe("Isu atau pertanyaan terbuka"),
-  nextMeeting: z
-    .object({
-      date: z.string().describe("Tanggal pertemuan selanjutnya"),
-      agenda: z.string().describe("Agenda pertemuan selanjutnya"),
-      expectedOutcome: z.string().describe("Harapan hasil pertemuan selanjutnya"),
-    })
-    .describe("Rencana pertemuan berikutnya"),
+  projectName: z.string(),
+  meetingTitle: z.string(),
+  meetingObjective: z.string(),
+  meetingDate: z.string(),
+  meetingTime: z.string(),
+  meetingLocation: z.string(),
+  attendees: z.array(z.object({
+    name: z.string(),
+    role: z.string(),
+  })),
+  topics: z.array(z.object({
+    topic: z.string(),
+    keyPoints: z.string(),
+    decision: z.string(),
+  })),
+  actionItems: z.array(z.object({
+    action: z.string(),
+    pic: z.string(),
+    dueDate: z.string(),
+  })),
+  risks: z.array(z.object({
+    risk: z.string(),
+    impact: z.string(),
+    mitigation: z.string(),
+  })),
+  openIssues: z.array(z.object({
+    question: z.string(),
+    owner: z.string(),
+  })),
+  nextMeeting: z.object({
+    date: z.string(),
+    agenda: z.string(),
+    expectedOutcome: z.string(),
+  }),
 });
 
 type MomReviewData = z.infer<typeof momReviewSchema>;
 
+// Simplified clarification schema
 const momClarificationSchema = z.object({
-  id: z.string().describe("ID unik untuk klarifikasi"),
-  fieldPath: z
-    .enum([
-      "projectName",
-      "meetingTitle",
-      "meetingObjective",
-      "meetingDate",
-      "meetingTime",
-      "meetingLocation",
-      "attendees",
-      "topics",
-      "actionItems",
-      "risks",
-      "openIssues",
-      "nextMeeting",
-      "nextMeeting.date",
-      "nextMeeting.agenda",
-      "nextMeeting.expectedOutcome",
-    ])
-    .describe("Lokasi field yang perlu diklarifikasi"),
-  prompt: z
-    .string()
-    .describe(
-      "Pertanyaan natural yang akan ditampilkan ke pengguna untuk melengkapi informasi"
-    ),
-  currentValue: z
-    .string()
-    .describe("Nilai saat ini yang dianggap kurang akurat atau tidak lengkap")
-    .optional(),
-  answerType: z
-    .enum(["text", "list", "date"])
-    .default("text")
-    .describe("Jenis jawaban yang diharapkan"),
-  formatHint: z
-    .string()
-    .describe(
-      "Petunjuk singkat mengenai format jawaban yang diharapkan (mis. 'Nama - Peran')"
-    )
-    .optional(),
-  suggestions: z
-    .array(z.string())
-    .describe("Contoh jawaban atau opsi yang dapat dipilih pengguna")
-    .optional(),
-  severity: z
-    .enum(["high", "medium", "low"])
-    .default("medium")
-    .describe("Tingkat pentingnya klarifikasi"),
-});
-
-const momAnalysisSchema = z.object({
-  review: momReviewSchema,
-  clarifications: z.array(momClarificationSchema),
+  id: z.string(),
+  fieldPath: z.string(),
+  prompt: z.string(),
+  currentValue: z.string().optional(),
+  answerType: z.enum(["text", "list", "date"]).default("text"),
+  formatHint: z.string().optional(),
+  suggestions: z.array(z.string()).optional(),
+  severity: z.enum(["high", "medium", "low"]).default("medium"),
 });
 
 const clarificationAnswerSchema = z.object({
   id: z.string(),
-  fieldPath: momClarificationSchema.shape.fieldPath,
+  fieldPath: z.string(),
   prompt: z.string(),
   answer: z.string().optional(),
 });
 
 type ClarificationAnswer = z.infer<typeof clarificationAnswerSchema>;
 
+// Simplified template format
+const defaultTemplateFormat = `
+Format output:
+- Project: nama proyek
+- Meeting Title: judul
+- Date: tanggal
+- Time: waktu
+- Location: lokasi
+- Facilitator: nama
+- Note Taker: nama
+
+📌 Meeting Objective
+(1-2 kalimat)
+
+🧑‍💻 Attendees
+| Name | Role |
+| --- | --- |
+
+📄 Discussion Summary
+| Topic | Key Points | Decision |
+| --- | --- | --- |
+
+✏️ Notes
+(bullet list)
+
+🤹️ Tasks
+| Action | PIC | Due Date |
+| --- | --- | --- |
+
+✏️ Open Questions
+| No | Question | Owner |
+| --- | --- | --- |
+
+✏️ Risks & Issues
+| No | Risk | Impact | Mitigation |
+| --- | --- | --- | --- |
+
+✏️ Next Meeting
+- Date: tanggal
+- Agenda: agenda
+- Expected Outcome: hasil
+`;
+
+// Optimized summarize prompt for local models
 const summarizePrompt = (
   text: string,
   review?: MomReviewData,
-  clarifications?: ClarificationAnswer[]
-) => `
-${systemPreamble}
+  clarifications?: ClarificationAnswer[],
+  customTemplate?: string
+) => {
+  const truncatedText = truncateText(text, MAX_TRANSCRIPT_LENGTH);
+  const template = customTemplate || defaultTemplateFormat;
 
-Tugas: Ubah transkrip rapat berikut menjadi Minutes of Meeting (MoM) terstruktur dalam format Markdown.
+  let prompt = `Buat Minutes of Meeting dari transkrip berikut.
+Format: ${template}
+Bahasa: Indonesia
+Jika info tidak ada, tulis "Tidak disebutkan".
+`;
 
-Panduan format (ikuti urutan dan heading yang sama, gunakan emoji persis seperti di bawah):
+  if (review) {
+    prompt += `\nData terverifikasi:\n${JSON.stringify(review, null, 2)}\n`;
+  }
 
-Project: <nama proyek>
-Meeting Title: <judul rapat>
-Date: <tanggal lengkap dalam Bahasa Indonesia, mis. 23 Oktober 2025>
-Time: <rentang waktu, mis. 14:00 – 15:00 WIB>
-Location: <lokasi atau platform>
-Facilitator: <nama & jabatan>
-Note Taker: <nama & jabatan>
-Tambahkan kalimat "Add meeting date here." tepat setelah metadata.
+  if (clarifications?.length) {
+    prompt += `\nKlarifikasi:\n${clarifications.map((c, i) => `${i + 1}. ${c.fieldPath}: ${c.answer || "(kosong)"}`).join("\n")}\n`;
+  }
 
-📌 Meeting Objective
-<paragraf ringkas, 1-3 kalimat>
+  prompt += `\nTranscript:\n${truncatedText}`;
+  return prompt;
+};
 
-🧑‍💻 Attendees
+// Optimized MoM review prompt for local models
+const momReviewPrompt = (text: string, detectedSpeakers: string[]) => {
+  const truncatedText = truncateText(text, MAX_TRANSCRIPT_LENGTH);
+  
+  return `Analisis transkrip rapat ini dan buat JSON dengan struktur berikut.
 
-| Name | Role |
-| --- | --- |
-| ... |
+Speakers terdeteksi: ${detectedSpeakers.slice(0, 15).join(", ")}
 
-📄 Discussion Summary
-
-| Topic | Key Points | Decision / Agreement |
-| --- | --- | --- |
-| ... |
-
-✏️ Notes
-<bullet list atau "- Tidak ada catatan tambahan." jika kosong>
-
-🤹️ Tasks
-
-| Action | PIC | Due Date |
-| --- | --- | --- |
-| ... |
-
-✏️ Open Question
-
-| No | Question | Owner |
-| --- | --- | --- |
-| ... |
-
-✏️ Risk & Issues
-
-| No | Risk | Impact | Mitigation |
-| --- | --- | --- | --- |
-| ... |
-
-✏️ Next Meeting
-
-Date: <tanggal selanjutnya>
-Agenda: <agenda>
-Expected Outcome: <hasil yang diharapkan>
-
-Aturan tambahan:
-- Jika informasi terverifikasi tersedia, jadikan itu rujukan utama. Jangan mengubah nilai yang sudah dikonfirmasi pengguna kecuali bertentangan jelas dengan transkrip.
-- Gunakan Bahasa Indonesia yang formal namun ringkas.
-- Isi setiap kolom sebaik mungkin. Jika informasi tidak ada di transkrip, tulis "Tidak disebutkan".
-- Pastikan tabel selaras.
-- Jaga agar setiap kolom "Due Date" menggunakan format tanggal lokal (mis. 26 Okt 2025).
-- Jangan gunakan tag HTML apa pun (mis. <br/>, <br>, <p>). Gunakan baris kosong untuk pemisah.
-- Jika transkrip mengandung tag HTML (seperti <br/>), konversi menjadi baris baru biasa dan hilangkan tag tersebut pada hasil akhir.
-- Output wajib murni Markdown tanpa elemen HTML.
-
-${review ? `
-Informasi terverifikasi berikut berasal dari konfirmasi pengguna. Gunakan sebagai acuan utama. Jika ada hal yang tidak ditemukan dalam transkrip, biarkan sebagaimana adanya.
-
-Data terverifikasi (JSON):
-${JSON.stringify(review, null, 2)}
-` : ""}
-
-${clarifications && clarifications.length
-  ? `Klarifikasi tambahan dari pengguna:
-${clarifications
-  .map(
-    (item, idx) =>
-      `${idx + 1}. Field: ${item.fieldPath}
-   Pertanyaan: ${item.prompt}
-   Jawaban pengguna: ${item.answer?.trim() || "(Pengguna memilih tetap menggunakan data awal)"}`
-  )
-  .join("\n")}
-
-Gunakan jawaban tersebut untuk memperbarui data sebelum membuat MoM. Jika jawaban kosong, pertahankan nilai pada data terverifikasi.`
-  : ""}
-
-Transcript:
-"""
-${text}
-"""
-`
-
-const momReviewPrompt = (text: string) => `
-${systemPreamble}
-
-Tugas: Baca seluruh transkrip rapat berikut dan susun data terstruktur untuk dikonfirmasi ke pengguna sebelum membuat Minutes of Meeting.
-
-Format keluaran JSON:
+Output JSON (tanpa markdown):
 {
   "review": {
-    "projectName": string,
-    "meetingTitle": string,
-    "meetingObjective": string,
-    "meetingDate": string,
-    "meetingTime": string,
-    "meetingLocation": string,
-    "attendees": [
-      { "name": string, "role": string }
-    ],
-    "topics": [
-      { "topic": string, "keyPoints": string, "decision": string }
-    ],
-    "actionItems": [
-      { "action": string, "pic": string, "dueDate": string }
-    ],
-    "risks": [
-      { "risk": string, "impact": string, "mitigation": string }
-    ],
-    "openIssues": [
-      { "question": string, "owner": string }
-    ],
-    "nextMeeting": { "date": string, "agenda": string, "expectedOutcome": string }
+    "projectName": "string",
+    "meetingTitle": "string",
+    "meetingObjective": "string",
+    "meetingDate": "string",
+    "meetingTime": "string",
+    "meetingLocation": "string",
+    "attendees": [{"name": "string", "role": "string"}],
+    "topics": [{"topic": "string", "keyPoints": "string", "decision": "string"}],
+    "actionItems": [{"action": "string", "pic": "string", "dueDate": "string"}],
+    "risks": [{"risk": "string", "impact": "string", "mitigation": "string"}],
+    "openIssues": [{"question": "string", "owner": "string"}],
+    "nextMeeting": {"date": "string", "agenda": "string", "expectedOutcome": "string"}
   },
   "clarifications": [
     {
-      "id": string,
-      "fieldPath": one of "projectName", "meetingTitle", "meetingObjective", "meetingDate", "meetingTime", "meetingLocation", "attendees", "topics", "actionItems", "risks", "openIssues", "nextMeeting", "nextMeeting.date", "nextMeeting.agenda", "nextMeeting.expectedOutcome",
-      "prompt": string,
-      "currentValue": string,
-      "answerType": "text" | "list" | "date",
-      "formatHint": string,
-      "suggestions": string[],
-      "severity": "high" | "medium" | "low"
+      "id": "1",
+      "fieldPath": "meetingDate",
+      "prompt": "Konfirmasi tanggal rapat",
+      "currentValue": "17 Desember 2024",
+      "answerType": "date",
+      "suggestions": ["2024-12-17", "17 Desember 2024", "December 17, 2024"],
+      "severity": "medium"
+    },
+    {
+      "id": "2",
+      "fieldPath": "meetingLocation",
+      "prompt": "Konfirmasi lokasi rapat",
+      "currentValue": "Tidak disebutkan",
+      "answerType": "text",
+      "suggestions": ["Ruang Meeting Lt. 3", "Google Meet", "Zoom Meeting"],
+      "severity": "low"
     }
   ]
 }
 
-Panduan:
-- Baca seluruh transkrip, identifikasi informasi relevan sesuai struktur di atas.
-- Isi semua field pada "review"; gunakan "Tidak disebutkan" bila benar-benar tidak ditemukan.
-- Bangun daftar "clarifications" hanya untuk bagian yang masih meragukan, tidak lengkap, atau bertentangan. Hindari menanyakan ulang informasi yang sudah jelas.
-- **PENTING**: Selalu buat klarifikasi untuk "attendees" jika ada nama peserta yang terdeteksi, karena pengguna perlu memastikan ejaan nama dan peran yang benar. Gunakan fieldPath "attendees" dan berikan formatHint "Tulis setiap peserta dengan format: Nama Lengkap - Peran/Jabatan (satu baris per peserta)".
-- Batasi klarifikasi maksimal 7 pertanyaan (termasuk attendees), urutkan dari prioritas tertinggi.
-- Tulis "prompt" dalam gaya percakapan santun dan hangat.
-- "currentValue" harus merefleksikan nilai yang dianggap tidak akurat agar pengguna tahu konteksnya.
-- Gunakan "answerType" dan "formatHint" untuk memandu format jawaban.
-- Jika tidak ada bagian yang membutuhkan klarifikasi, kembalikan array "clarifications" kosong.
+PENTING untuk clarifications:
+- "currentValue": WAJIB string biasa yang mudah dibaca manusia (bukan JSON), contoh: "Andi, Budi, Citra" atau "Tidak disebutkan"
+- "suggestions": WAJIB berisi nilai KONKRET yang bisa langsung dipilih user, bukan instruksi meta (❌ "Verifikasi nama", ✅ "John Doe, Jane Smith")
+- Hanya buat clarification jika ada informasi ambigu atau hilang
+- Maks 5 clarifications
+
+Isi semua field review. Gunakan "Tidak disebutkan" jika tidak ada info.
 
 Transcript:
-"""
-${text}
-"""
-`;
+${truncatedText}`;
+};
 
-const specPrompt = (text: string) => `
-${systemPreamble}
-
-Tugas: Dari transkrip rapat berikut, buat 3 dokumen lengkap: URD (User Requirement Document), A&D (Analysis & Design Document), dan Test Scenario Document.
-- Isi semua field dengan data yang relevan dari transkrip
-- Gunakan format yang profesional dan terstruktur
-- Jika informasi tidak ada di transkrip, buat asumsi yang masuk akal
-- Semua diagram pada dokumen A&D harus menggunakan sintaks Mermaid valid (mis. flowchart, erDiagram, sequenceDiagram) dan tidak boleh memakai escape \\n.
-${mermaidInstruction}
+// Simplified spec prompt for local models
+const specPrompt = (text: string) => {
+  const truncatedText = truncateText(text, MAX_TRANSCRIPT_LENGTH);
+  return `Dari transkrip rapat, buat dokumen teknis.
+Bahasa: Indonesia
+Output: JSON
 
 Transcript:
-"""
-${text}
-"""
-`;
+${truncatedText}`;
+};
 
-const listField = (description: string) =>
-  z.array(z.string().min(1).describe(description)).describe(description);
+// Simplified schemas for local models
+const listField = () => z.array(z.string());
 
 const urdSchema = z.object({
-  projectName: z.string().describe("Nama proyek"),
-  date: z.string().describe("Tanggal pembuatan dokumen"),
-  preparedBy: z.string().describe("Tim yang menyiapkan"),
-  reviewedBy: z.string().describe("Pihak yang mereview"),
-  version: z.string().describe("Versi dokumen"),
-  background: z.string().describe("Latar belakang kebutuhan proyek"),
-  objective: z.string().describe("Tujuan dari proyek"),
-  inScope: listField("Item yang termasuk dalam scope proyek"),
-  outOfScope: listField("Item yang tidak termasuk dalam scope"),
-  functionalRequirements: z
-    .array(
-      z.object({
-        id: z.string().describe("ID requirement (e.g., FR-01)"),
-        requirement: z.string().describe("Nama requirement"),
-        description: z.string().describe("Deskripsi detail"),
-        priority: z.string().describe("Prioritas: High, Medium, atau Low"),
-      })
-    )
-    .describe("Daftar functional requirements"),
-  nonFunctionalRequirements: z
-    .array(
-      z.object({
-        id: z.string().describe("ID requirement (e.g., NFR-01)"),
-        aspect: z
-          .string()
-          .describe("Aspek non-functional (Security, Performance, dll)"),
-        requirement: z.string().describe("Deskripsi requirement"),
-      })
-    )
-    .describe("Daftar non-functional requirements"),
-  userRoles: z
-    .array(
-      z.object({
-        role: z.string().describe("Nama role"),
-        description: z.string().describe("Deskripsi role"),
-        accessRights: z.string().describe("Hak akses"),
-      })
-    )
-    .describe("Daftar user role dan akses"),
-  businessFlow: z.string().describe("Alur bisnis proses dalam bentuk teks"),
-  integrationPoints: z
-    .array(
-      z.object({
-        system: z.string().describe("Nama sistem eksternal"),
-        direction: z.string().describe("Inbound atau Outbound"),
-        data: z.string().describe("Jenis data yang diintegrasikan"),
-        protocol: z.string().describe("Protokol komunikasi"),
-      })
-    )
-    .describe("Titik integrasi dengan sistem lain"),
-  acceptanceCriteria: z.string().describe("Kriteria penerimaan proyek"),
+  projectName: z.string(),
+  date: z.string(),
+  preparedBy: z.string(),
+  reviewedBy: z.string(),
+  version: z.string(),
+  background: z.string(),
+  objective: z.string(),
+  inScope: listField(),
+  outOfScope: listField(),
+  functionalRequirements: z.array(z.object({
+    id: z.string(),
+    requirement: z.string(),
+    description: z.string(),
+    priority: z.string(),
+  })),
+  nonFunctionalRequirements: z.array(z.object({
+    id: z.string(),
+    aspect: z.string(),
+    requirement: z.string(),
+  })),
+  userRoles: z.array(z.object({
+    role: z.string(),
+    description: z.string(),
+    accessRights: z.string(),
+  })),
+  businessFlow: z.string(),
+  integrationPoints: z.array(z.object({
+    system: z.string(),
+    direction: z.string(),
+    data: z.string(),
+    protocol: z.string(),
+  })),
+  acceptanceCriteria: z.string(),
 });
 
 const andSchema = z.object({
-  projectName: z.string().describe("Nama proyek"),
-  date: z.string().describe("Tanggal pembuatan dokumen"),
-  version: z.string().describe("Versi dokumen"),
-  preparedBy: z.string().describe("Tim yang menyiapkan"),
-  objective: z.string().describe("Tujuan dokumen analisis dan desain"),
-  asIsProcess: z.string().describe("Proses bisnis saat ini (AS-IS)"),
-  toBeProcess: z.string().describe("Proses bisnis yang akan datang (TO-BE)"),
-  useCaseDiagram: z
-    .string()
-    .describe(
-      "Diagram use case dalam format Mermaid (mis. diawali flowchart LR atau graph TD). Gunakan newline nyata, hindari escape \\n."
-    ),
-  erdDiagram: z
-    .string()
-    .describe(
-      "Entity Relationship Diagram dalam format Mermaid (gunakan blok erDiagram). Gunakan newline nyata, hindari escape \\n."
-    ),
-  systemArchitecture: z
-    .string()
-    .describe(
-      "Arsitektur sistem (C4 Level 1) dalam Mermaid (mis. graph, flowchart, atau diagram C4 resmi). Gunakan newline nyata, hindari escape \\n."
-    ),
-  containerDiagram: z
-    .string()
-    .describe(
-      "Container diagram (C4 Level 2) dalam Mermaid (mis. C4Container, flowchart, atau graph). Gunakan newline nyata, hindari escape \\n."
-    ),
-  technologyStack: z
-    .array(
-      z.object({
-        component: z.string().describe("Nama komponen"),
-        technology: z.string().describe("Teknologi yang digunakan"),
-        description: z.string().describe("Deskripsi komponen"),
-      })
-    )
-    .describe("Stack teknologi yang digunakan"),
-  sequenceDiagram: z
-    .string()
-    .describe(
-      "Sequence diagram untuk proses utama dalam Mermaid (diawali sequenceDiagram). Gunakan newline nyata, hindari escape \\n."
-    ),
-  uiUxMockup: z.string().describe("Deskripsi mockup UI/UX"),
-  nonFunctionalDesign: z
-    .array(
-      z.object({
-        aspect: z
-          .string()
-          .describe("Aspek desain (Security, Performance, dll)"),
-        specification: z.string().describe("Spesifikasi desain"),
-      })
-    )
-    .describe("Desain non-functional"),
-  deploymentArchitecture: z
-    .string()
-    .describe(
-      "Arsitektur deployment dalam Mermaid (mis. flowchart atau graph). Gunakan newline nyata, hindari escape \\n."
-    ),
+  projectName: z.string(),
+  date: z.string(),
+  version: z.string(),
+  preparedBy: z.string(),
+  objective: z.string(),
+  asIsProcess: z.string(),
+  toBeProcess: z.string(),
+  useCaseDiagram: z.string(),
+  erdDiagram: z.string(),
+  systemArchitecture: z.string(),
+  containerDiagram: z.string(),
+  technologyStack: z.array(z.object({
+    component: z.string(),
+    technology: z.string(),
+    description: z.string(),
+  })),
+  sequenceDiagram: z.string(),
+  uiUxMockup: z.string(),
+  nonFunctionalDesign: z.array(z.object({
+    aspect: z.string(),
+    specification: z.string(),
+  })),
+  deploymentArchitecture: z.string(),
 });
 
 const testScenarioSchema = z.object({
-  projectName: z.string().describe("Nama proyek"),
-  version: z.string().describe("Versi dokumen"),
-  date: z.string().describe("Tanggal pembuatan dokumen"),
-  preparedBy: z.string().describe("Tim yang menyiapkan"),
-  objective: z.string().describe("Tujuan dokumen test scenario"),
-  referenceDocuments: z
-    .array(
-      z.object({
-        name: z.string().describe("Nama dokumen referensi"),
-        version: z.string().describe("Versi dokumen"),
-        date: z.string().describe("Tanggal dokumen"),
-      })
-    )
-    .describe("Dokumen referensi"),
-  inScope: listField("Item yang termasuk dalam scope testing"),
-  outOfScope: listField("Item yang tidak termasuk dalam scope testing"),
-  functionalScenarios: z
-    .array(
-      z.object({
-        id: z.string().describe("ID skenario (e.g., TS-01)"),
-        description: z.string().describe("Deskripsi skenario"),
-        urdReference: z.string().describe("Referensi ke URD"),
-        expectedResult: z.string().describe("Hasil yang diharapkan"),
-        category: z.string().describe("Kategori (Fungsional, Workflow, dll)"),
-      })
-    )
-    .describe("Skenario test fungsional"),
-  nonFunctionalScenarios: z
-    .array(
-      z.object({
-        id: z.string().describe("ID skenario (e.g., TS-NF-01)"),
-        description: z.string().describe("Deskripsi skenario"),
-        aspect: z.string().describe("Aspek yang diuji"),
-        expectedResult: z.string().describe("Hasil yang diharapkan"),
-      })
-    )
-    .describe("Skenario test non-fungsional"),
-  testData: z
-    .array(
-      z.object({
-        dataType: z.string().describe("Jenis data"),
-        example: z.string().describe("Contoh data"),
-        remarks: z.string().describe("Keterangan"),
-      })
-    )
-    .describe("Data yang diperlukan untuk testing"),
-  acceptanceCriteria: z.string().describe("Kriteria penerimaan testing"),
+  projectName: z.string(),
+  version: z.string(),
+  date: z.string(),
+  preparedBy: z.string(),
+  objective: z.string(),
+  referenceDocuments: z.array(z.object({
+    name: z.string(),
+    version: z.string(),
+    date: z.string(),
+  })),
+  inScope: listField(),
+  outOfScope: listField(),
+  functionalScenarios: z.array(z.object({
+    id: z.string(),
+    description: z.string(),
+    urdReference: z.string(),
+    expectedResult: z.string(),
+    category: z.string(),
+  })),
+  nonFunctionalScenarios: z.array(z.object({
+    id: z.string(),
+    description: z.string(),
+    aspect: z.string(),
+    expectedResult: z.string(),
+  })),
+  testData: z.array(z.object({
+    dataType: z.string(),
+    example: z.string(),
+    remarks: z.string(),
+  })),
+  acceptanceCriteria: z.string(),
 });
 
 const specSchema = z.object({
-  summary: z
-    .string()
-    .min(1)
-    .max(800)
-    .describe("Ringkasan rapat dalam Bahasa Indonesia, maksimum 150 kata."),
+  summary: z.string(),
   urd: urdSchema,
   analysisDesign: andSchema,
   testScenario: testScenarioSchema,
@@ -516,11 +323,12 @@ export async function POST(req: NextRequest) {
     step,
     prompt,
     fieldLabel,
-    includeMermaidContext,
     stage,
     review,
     clarificationAnswers,
+    customTemplate,
   } = await req.json();
+  
   if (!text || !mode) {
     return new Response(JSON.stringify({ error: "Missing text or mode" }), {
       status: 400,
@@ -528,6 +336,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Edit mode - simplified prompt
     if (mode === "edit") {
       if (!prompt) {
         return new Response(
@@ -536,39 +345,20 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const mermaidContext =
-        includeMermaidContext || (fieldLabel && /diagram/i.test(fieldLabel))
-          ? `
-Ikuti panduan Mermaid berikut:
-${mermaidInstruction}`
-          : "";
+      const editPrompt = `Edit konten berikut sesuai instruksi.
+Field: ${fieldLabel || "Content"}
+Bahasa: Indonesia
 
-      const editPrompt = `
-${systemPreamble}
+Konten:
+${truncateText(text, 5000)}
 
-Tugas: Edit konten berikut berdasarkan instruksi pengguna.
-- Field yang sedang diedit: ${fieldLabel || "Content"}
-- Pertahankan format markdown jika ada
-- Terapkan perubahan sesuai instruksi dengan akurat
-- Jika konten kosong, buat konten baru sesuai instruksi
-${mermaidContext}
+Instruksi: ${prompt}
 
-Konten saat ini:
-"""
-${text}
-"""
+Output dalam markdown.`;
 
-Instruksi pengguna:
-"""
-${prompt}
-"""
-
-Berikan hasil editan dalam format markdown yang rapi.
-`;
-
-      const { text: out } = await generateText({
-        model: MODEL,
-        prompt: editPrompt,
+      const out = await generateText(editPrompt, {
+        systemPrompt: systemPreamble,
+        maxInputChars: MAX_TRANSCRIPT_LENGTH,
       });
 
       return new Response(JSON.stringify({ result: out?.trim() || "" }), {
@@ -576,23 +366,38 @@ Berikan hasil editan dalam format markdown yang rapi.
       });
     }
 
+    // Summarize mode (MoM)
     if (mode === "summarize") {
       if (stage === "analyze") {
-        const result = await generateObject({
-          model: MODEL,
-          schema: momAnalysisSchema,
-          prompt: momReviewPrompt(text),
+        // Extract speakers first for better context
+        const speakers = extractSpeakers(text);
+        const promptText = momReviewPrompt(text, speakers);
+        
+        const resultSchema = z.object({
+          review: momReviewSchema,
+          clarifications: z.array(momClarificationSchema),
+        }) as z.ZodType<{ 
+          review: MomReviewData; 
+          clarifications: z.infer<typeof momClarificationSchema>[] 
+        }>;
+
+        const result = await generateObject<{ 
+          review: MomReviewData; 
+          clarifications: z.infer<typeof momClarificationSchema>[] 
+        }>(promptText, {
+          systemPrompt: systemPreamble,
+          temperature: 0.2,
+          maxInputChars: MAX_TRANSCRIPT_LENGTH,
+          schema: resultSchema,
         });
 
         return new Response(
           JSON.stringify({
             stage: "clarify",
-            review: result.object.review,
-            clarifications: result.object.clarifications,
+            review: result.review,
+            clarifications: result.clarifications || [],
           }),
-          {
-            headers: { "Content-Type": "application/json" },
-          }
+          { headers: { "Content-Type": "application/json" } }
         );
       }
 
@@ -609,141 +414,214 @@ Berikan hasil editan dalam format markdown yang rapi.
           ? clarificationAnswerSchema.array().parse(clarificationAnswers)
           : [];
 
-        const { text: out } = await generateText({
-          model: MODEL,
-          prompt: summarizePrompt(text, verifiedReview, parsedClarifications),
-        });
+        const out = await generateText(
+          summarizePrompt(text, verifiedReview, parsedClarifications, customTemplate),
+          { 
+            systemPrompt: systemPreamble,
+            maxInputChars: MAX_TRANSCRIPT_LENGTH,
+          }
+        );
+        
         return new Response(
           JSON.stringify({
             summary: out?.trim() || "",
             review: verifiedReview,
             clarifications: parsedClarifications,
           }),
-          {
-            headers: { "Content-Type": "application/json" },
-          }
+          { headers: { "Content-Type": "application/json" } }
         );
       }
 
-      const { text: out } = await generateText({
-        model: MODEL,
-        prompt: summarizePrompt(text),
-      });
+      // Direct summarize without analysis
+      const out = await generateText(
+        summarizePrompt(text, undefined, undefined, customTemplate),
+        { 
+          systemPrompt: systemPreamble,
+          maxInputChars: MAX_TRANSCRIPT_LENGTH,
+        }
+      );
       return new Response(JSON.stringify({ summary: out?.trim() || "" }), {
         headers: { "Content-Type": "application/json" },
       });
     }
 
+    // Spec mode - generate technical documents
     if (mode === "spec") {
-      // If step is provided, generate only that specific document
+      const truncatedText = truncateText(text, MAX_TRANSCRIPT_LENGTH);
+      
       if (step === "urd") {
-        const result = await generateObject({
-          model: MODEL,
+        const urdPrompt = `Buat User Requirement Document (URD) dari transkrip rapat.
+Bahasa: Indonesia
+
+WAJIB gunakan struktur JSON PERSIS seperti ini:
+{
+  "urd": {
+    "projectName": "nama project",
+    "date": "tanggal hari ini",
+    "preparedBy": "nama pembuat",
+    "reviewedBy": "nama reviewer",
+    "version": "1.0",
+    "background": "latar belakang project",
+    "objective": "tujuan project",
+    "inScope": ["item dalam scope 1", "item 2"],
+    "outOfScope": ["item di luar scope 1"],
+    "functionalRequirements": [{"id": "FR-001", "requirement": "judul", "description": "deskripsi", "priority": "High/Medium/Low"}],
+    "nonFunctionalRequirements": [{"id": "NFR-001", "aspect": "Performance/Security/dll", "requirement": "deskripsi"}],
+    "userRoles": [{"role": "nama role", "description": "deskripsi", "accessRights": "hak akses"}],
+    "businessFlow": "alur bisnis dalam bentuk teks atau mermaid",
+    "integrationPoints": [{"system": "nama sistem", "direction": "Inbound/Outbound", "data": "jenis data", "protocol": "REST/SOAP/dll"}],
+    "acceptanceCriteria": "kriteria penerimaan"
+  }
+}
+
+Transcript:
+${truncatedText}`;
+
+        const result = await generateObject<{ urd: z.infer<typeof urdSchema> }>(urdPrompt, {
+          systemPrompt: systemPreamble,
+          temperature: 0.2,
+          maxInputChars: MAX_TRANSCRIPT_LENGTH,
           schema: z.object({ urd: urdSchema }),
-          prompt: `${systemPreamble}\n\nTugas: Dari transkrip rapat berikut, buat User Requirement Document (URD) yang lengkap.\n\nTranscript:\n"""\n${text}\n"""`,
         });
-        return new Response(JSON.stringify({ urd: result.object.urd }), {
+        return new Response(JSON.stringify({ urd: result.urd }), {
           headers: { "Content-Type": "application/json" },
         });
       }
 
       if (step === "analysisDesign") {
-        const result = await generateObject({
-          model: MODEL,
-          schema: z.object({ analysisDesign: andSchema }),
-          prompt: `${systemPreamble}
+        const andPrompt = `Buat Analysis & Design Document dari transkrip rapat.
+Bahasa: Indonesia
 
-Tugas: Dari transkrip rapat berikut, buat Analysis & Design Document (A&D) yang lengkap.
+WAJIB gunakan struktur JSON PERSIS seperti ini:
+{
+  "analysisDesign": {
+    "projectName": "nama project",
+    "date": "tanggal",
+    "version": "1.0",
+    "preparedBy": "nama",
+    "objective": "tujuan",
+    "asIsProcess": "proses saat ini",
+    "toBeProcess": "proses yang diinginkan",
+    "useCaseDiagram": "mermaid code untuk use case",
+    "erdDiagram": "mermaid code untuk ERD",
+    "systemArchitecture": "mermaid code arsitektur",
+    "containerDiagram": "mermaid code container",
+    "technologyStack": [{"component": "Backend", "technology": "Node.js", "description": "..."}],
+    "sequenceDiagram": "mermaid code sequence",
+    "uiUxMockup": "deskripsi UI/UX",
+    "nonFunctionalDesign": [{"aspect": "Performance", "specification": "..."}],
+    "deploymentArchitecture": "mermaid code deployment"
+  }
+}
 
-Instruksi penting untuk diagram:
-- Semua diagram WAJIB menggunakan sintaks Mermaid yang valid.
-- Gunakan newline sebenarnya untuk setiap baris dan hindari escape \\n.
-- Pilih tipe diagram yang sesuai: flowchart/graph untuk use case & arsitektur, erDiagram untuk ERD, C4Container atau flowchart untuk container diagram, sequenceDiagram untuk sequence, dan flowchart/graph untuk deployment.
-- Sertakan label atau komentar seperlunya untuk menjaga keterbacaan.
-
-Contoh format Mermaid:
-${mermaidInstruction}
+Semua diagram WAJIB menggunakan sintaks Mermaid yang valid.
 
 Transcript:
-"""
-${text}
-"""`,
+${truncatedText}`;
+
+        const result = await generateObject<{ analysisDesign: z.infer<typeof andSchema> }>(andPrompt, {
+          systemPrompt: systemPreamble,
+          temperature: 0.2,
+          maxInputChars: MAX_TRANSCRIPT_LENGTH,
+          schema: z.object({ analysisDesign: andSchema }),
         });
 
-        // Post-process to convert any \\n to actual newlines
+        // Post-process diagrams
         const processedDesign = {
-          ...result.object.analysisDesign,
-          useCaseDiagram: result.object.analysisDesign.useCaseDiagram.replace(
-            /\\n/g,
-            "\n"
-          ),
-          erdDiagram: result.object.analysisDesign.erdDiagram.replace(
-            /\\n/g,
-            "\n"
-          ),
-          systemArchitecture:
-            result.object.analysisDesign.systemArchitecture.replace(
-              /\\n/g,
-              "\n"
-            ),
-          containerDiagram:
-            result.object.analysisDesign.containerDiagram.replace(/\\n/g, "\n"),
-          sequenceDiagram: result.object.analysisDesign.sequenceDiagram.replace(
-            /\\n/g,
-            "\n"
-          ),
-          deploymentArchitecture:
-            result.object.analysisDesign.deploymentArchitecture.replace(
-              /\\n/g,
-              "\n"
-            ),
+          ...result.analysisDesign,
+          useCaseDiagram: result.analysisDesign.useCaseDiagram?.replace(/\\n/g, "\n") || "",
+          erdDiagram: result.analysisDesign.erdDiagram?.replace(/\\n/g, "\n") || "",
+          systemArchitecture: result.analysisDesign.systemArchitecture?.replace(/\\n/g, "\n") || "",
+          containerDiagram: result.analysisDesign.containerDiagram?.replace(/\\n/g, "\n") || "",
+          sequenceDiagram: result.analysisDesign.sequenceDiagram?.replace(/\\n/g, "\n") || "",
+          deploymentArchitecture: result.analysisDesign.deploymentArchitecture?.replace(/\\n/g, "\n") || "",
         };
 
-        return new Response(
-          JSON.stringify({ analysisDesign: processedDesign }),
-          {
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+        return new Response(JSON.stringify({ analysisDesign: processedDesign }), {
+          headers: { "Content-Type": "application/json" },
+        });
       }
 
       if (step === "testScenario") {
-        const result = await generateObject({
-          model: MODEL,
+        const testPrompt = `Buat Test Scenario Document dari transkrip rapat.
+Bahasa: Indonesia
+
+WAJIB gunakan struktur JSON PERSIS seperti ini:
+{
+  "testScenario": {
+    "projectName": "nama project",
+    "version": "1.0",
+    "date": "tanggal",
+    "preparedBy": "nama",
+    "objective": "tujuan testing",
+    "referenceDocuments": [{"name": "URD", "version": "1.0", "date": "tanggal"}],
+    "inScope": ["item dalam scope"],
+    "outOfScope": ["item di luar scope"],
+    "functionalScenarios": [{"id": "TC-001", "description": "deskripsi test", "urdReference": "FR-001", "expectedResult": "hasil", "category": "Functional"}],
+    "nonFunctionalScenarios": [{"id": "NF-001", "description": "deskripsi", "aspect": "Performance", "expectedResult": "hasil"}],
+    "testData": [{"dataType": "User Data", "example": "contoh", "remarks": "keterangan"}],
+    "acceptanceCriteria": "kriteria penerimaan"
+  }
+}
+
+Transcript:
+${truncatedText}`;
+
+        const result = await generateObject<{ testScenario: z.infer<typeof testScenarioSchema> }>(testPrompt, {
+          systemPrompt: systemPreamble,
+          temperature: 0.2,
+          maxInputChars: MAX_TRANSCRIPT_LENGTH,
           schema: z.object({ testScenario: testScenarioSchema }),
-          prompt: `${systemPreamble}\n\nTugas: Dari transkrip rapat berikut, buat Test Scenario Document yang lengkap.\n\nTranscript:\n"""\n${text}\n"""`,
         });
-        return new Response(
-          JSON.stringify({ testScenario: result.object.testScenario }),
-          {
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+        return new Response(JSON.stringify({ testScenario: result.testScenario }), {
+          headers: { "Content-Type": "application/json" },
+        });
       }
 
-      // Original behavior: generate all at once (fallback)
-      const result = await generateObject({
-        model: MODEL,
+      // Generate all at once (fallback) - not recommended for local models
+      const fullPrompt = `${specPrompt(text)}
+Output: JSON dengan struktur {summary, urd, analysisDesign, testScenario}`;
+
+      const result = await generateObject<SpecResult>(fullPrompt, {
+        systemPrompt: systemPreamble,
+        temperature: 0.2,
+        maxInputChars: MAX_TRANSCRIPT_LENGTH,
         schema: specSchema,
-        prompt: specPrompt(text),
       });
 
-      const data: SpecResult = result.object;
-      const { summary, urd, analysisDesign, testScenario } = data;
-
-      return new Response(
-        JSON.stringify({ summary, urd, analysisDesign, testScenario }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return new Response(JSON.stringify(result), {
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     return new Response(JSON.stringify({ error: "Unsupported mode" }), {
       status: 400,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "AI error";
+    console.error("AI API Error:", err);
+    const message = err instanceof Error ? err.message : "AI processing error";
+    
+    // Provide more helpful error messages
+    if (message.includes("timeout")) {
+      return new Response(
+        JSON.stringify({ 
+          error: "Request timeout. Try with shorter transcript or simpler request.",
+          details: message 
+        }), 
+        { status: 504 }
+      );
+    }
+    
+    if (message.includes("parse") || message.includes("JSON")) {
+      return new Response(
+        JSON.stringify({ 
+          error: "Failed to parse AI response. Try again or simplify your request.",
+          details: message 
+        }), 
+        { status: 500 }
+      );
+    }
+    
     return new Response(JSON.stringify({ error: message }), { status: 500 });
   }
 }

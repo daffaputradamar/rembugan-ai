@@ -5,6 +5,8 @@ import {
   Inter
 } from "next/font/google"
 import { Toaster } from "@/components/ui/sonner"
+import { AuthProvider } from "@/components/auth-provider"
+import { ThemeProvider } from "@/components/theme-provider"
 
 const _inter = Inter({
   subsets: ["latin"],
@@ -26,18 +28,18 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <body className={`min-h-screen bg-background text-foreground font-sans ${_inter.variable}`}>
-        {/* Futuristic Background */}
-        <div className="futuristic-bg">
-          <div className="glow-orb glow-orb-1" />
-          <div className="glow-orb glow-orb-2" />
-          <div className="glow-orb glow-orb-3" />
-          <div className="scan-line" />
-          <div className="noise-overlay" />
-        </div>
-        {children}
+    <html lang="en" suppressHydrationWarning>
+      <body className={`min-h-screen bg-background text-foreground font-sans ${_inter.variable} antialiased`}>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <AuthProvider>
+            <div className="modern-bg">
+              <div className="neon-glow neon-glow-orange" style={{ width: "500px", height: "500px", top: "-100px", right: "-100px" }} />
+              <div className="neon-glow neon-glow-blue" style={{ width: "400px", height: "400px", bottom: "-50px", left: "-50px" }} />
+            </div>
+            {children}
+          </AuthProvider>
         <Toaster richColors />
+        </ThemeProvider>
         <Analytics />
       </body>
     </html>

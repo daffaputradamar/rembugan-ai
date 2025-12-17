@@ -8,6 +8,7 @@ import type {
   ClarificationAnswer,
   SummaryPhase,
   Step,
+  CustomTemplate,
 } from "@/types/mom"
 
 const STORAGE_KEY = "rembuganai-session"
@@ -16,9 +17,10 @@ interface UseMomWorkflowProps {
   transcript: string
   step: Step
   setStep: (step: Step) => void
+  customTemplate?: CustomTemplate | null
 }
 
-export function useMomWorkflow({ transcript, step, setStep }: UseMomWorkflowProps) {
+export function useMomWorkflow({ transcript, step, setStep, customTemplate }: UseMomWorkflowProps) {
   const [summary, setSummary] = useState("")
   const [momReview, setMomReview] = useState<MomReview | null>(null)
   const [clarifications, setClarifications] = useState<MomClarification[]>([])
@@ -131,7 +133,12 @@ export function useMomWorkflow({ transcript, step, setStep }: UseMomWorkflowProp
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: transcript, mode: "summarize", stage: "analyze" }),
+        body: JSON.stringify({
+          text: transcript,
+          mode: "summarize",
+          stage: "analyze",
+          customTemplate: customTemplate?.markdown,
+        }),
       })
       if (!res.ok) throw new Error("AI request failed")
       const data = await res.json()
@@ -188,6 +195,7 @@ export function useMomWorkflow({ transcript, step, setStep }: UseMomWorkflowProp
           stage: "finalize",
           review: momReview,
           clarificationAnswers,
+          customTemplate: customTemplate?.markdown,
         }),
       })
       if (!res.ok) throw new Error("AI request failed")
